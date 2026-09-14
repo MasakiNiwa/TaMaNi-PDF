@@ -2,7 +2,7 @@ import { hrefFor } from '../../app/routes';
 import { useSettings } from '../../app/SettingsContext';
 import { APP_NAME, APP_VERSION, ISSUES_URL, REPO_URL } from '../../app/version';
 import { Icon } from '../../ui/Icon';
-import { Banner } from '../../ui/primitives';
+import { Banner, Collapsible } from '../../ui/primitives';
 
 function Faq({ question, children }: { question: string; children: React.ReactNode }) {
   return (
@@ -25,14 +25,14 @@ export function HelpPage() {
           <Icon name="help" size={24} />
           ヘルプ
         </h1>
-        <p className="page__lead">{APP_NAME} の使い方と、知っておいてほしい注意点をまとめています。</p>
+        <p className="page__lead">
+          {APP_NAME} の使い方と、知っておいてほしい注意点をまとめています。
+          見出しを押すと、その中身が開きます。
+        </p>
       </header>
 
-      <section className="section">
-        <h2 className="section__title">
-          <Icon name="shield" size={20} />
-          ファイルの扱いについて
-        </h2>
+      {/* ここだけは開いた状態にしておく。いちばん先に知ってほしい内容のため。 */}
+      <Collapsible title="ファイルの扱いについて" icon="shield" defaultOpen>
         <div className="stack">
           <Banner tone="privacy">
             <strong>PDFはあなたの端末から出ません。</strong>
@@ -75,13 +75,9 @@ export function HelpPage() {
             </p>
           </div>
         </div>
-      </section>
+      </Collapsible>
 
-      <section className="section">
-        <h2 className="section__title">
-          <Icon name="pages" size={20} />
-          ページ整理の使い方
-        </h2>
+      <Collapsible title="ページ整理の使い方" icon="pages">
         <div className="card card--outlined">
           <ol style={{ marginTop: 0, paddingLeft: '1.2em' }}>
             <li>
@@ -113,13 +109,9 @@ export function HelpPage() {
             ページ整理では中身を作り直さないので、<strong>文字は文字のまま残ります</strong>。
           </p>
         </div>
-      </section>
+      </Collapsible>
 
-      <section className="section">
-        <h2 className="section__title">
-          <Icon name="draw" size={20} />
-          墨消しの使い方と仕組み
-        </h2>
+      <Collapsible title="墨消しの使い方と仕組み" icon="draw">
         <div className="stack">
           <div className="card card--outlined">
             <ol style={{ marginTop: 0, paddingLeft: '1.2em' }}>
@@ -180,13 +172,9 @@ export function HelpPage() {
             しおり・注釈・入力フォームも失われます。元のPDFは必ず手元に残しておいてください。
           </Banner>
         </div>
-      </section>
+      </Collapsible>
 
-      <section className="section">
-        <h2 className="section__title">
-          <Icon name="layers" size={20} />
-          テンプレートと一括墨消し
-        </h2>
+      <Collapsible title="テンプレートと一括墨消し" icon="layers">
         <div className="card card--outlined">
           <p>
             同じ発行元から届く、書式がまったく同じPDF (請求書や明細など) を毎回同じ場所で墨消しするなら、
@@ -222,10 +210,9 @@ export function HelpPage() {
             <strong>出力結果は必ず目で確認してください</strong>。
           </p>
         </div>
-      </section>
+      </Collapsible>
 
-      <section className="section">
-        <h2 className="section__title">よくある質問</h2>
+      <Collapsible title="よくある質問" icon="help">
 
         <Faq question="読み込めないPDFがあります">
           パスワードで保護されたPDFは扱えません。パスワードを解除してから読み込んでください。
@@ -280,10 +267,9 @@ export function HelpPage() {
         <Faq question="対応ブラウザは">
           Chrome / Edge / Safari / Firefox の最新版を想定しています。スマートフォンでも利用できます。
         </Faq>
-      </section>
+      </Collapsible>
 
-      <section className="section">
-        <h2 className="section__title">不具合の報告・要望</h2>
+      <Collapsible title="不具合の報告・要望" icon="info">
         <div className="card card--outlined">
           <p style={{ marginBottom: 0 }}>
             現在のバージョンは <strong>v{APP_VERSION}</strong> です。
@@ -292,7 +278,7 @@ export function HelpPage() {
             報告の際は、<strong>PDFそのものは添付せず</strong>、操作の手順と症状をお書きいただけると助かります。
           </p>
         </div>
-      </section>
+      </Collapsible>
     </div>
   );
 }

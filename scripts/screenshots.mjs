@@ -148,7 +148,7 @@ await shoot('desktop-page-number', {
     await page.waitForTimeout(300);
   },
 });
-await shoot('desktop-settings', { width: 1280, height: 1100, route: '#/settings' });
+await shoot('desktop-settings', { width: 1280, height: 1700, route: '#/settings' });
 await shoot('desktop-help', { width: 1280, height: 1000, route: '#/help' });
 await shoot('desktop-home-dark', { width: 1280, height: 900, route: '', dark: true });
 await shoot('desktop-organize-dark', {

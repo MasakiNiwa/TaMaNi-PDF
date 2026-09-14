@@ -525,3 +525,61 @@
   margin: 0 2px;
   background: var(--md-outline-variant);
 }
+
+/* ---------- Collapsible ---------- */
+
+.collapse {
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-md);
+  background: var(--md-surface);
+}
+
+.collapse + .collapse {
+  margin-top: 8px;
+}
+
+.collapse__summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: inherit;
+  color: var(--md-on-surface);
+  font-weight: 600;
+  cursor: pointer;
+  /* 既定の三角は出さず、右端の山かっこで開閉を示す */
+  list-style: none;
+}
+
+.collapse__summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapse__summary:hover {
+  background: color-mix(in srgb, var(--md-on-surface) 6%, transparent);
+}
+
+.collapse__title {
+  flex: 1;
+  min-width: 0;
+}
+
+.collapse__chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--md-on-surface-variant);
+  transition: transform var(--dur-short) var(--ease-standard);
+}
+
+.collapse[open] .collapse__chevron {
+  transform: rotate(90deg);
+}
+
+.collapse__body {
+  padding: 0 16px 16px;
+}
+
+/* 中に入れた説明の、最後の余白は詰める */
+.collapse__body > :last-child {
+  margin-bottom: 0;
+}

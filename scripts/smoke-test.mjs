@@ -245,6 +245,44 @@ for (const [hash, heading] of [
   check(`${heading} が表示される`, await title.isVisible().catch(() => false));
 }
 
+console.log('\n[1b] 説明の折りたたみ');
+{
+  // 説明が長いと開いた瞬間の圧が強いので、見出しだけが並ぶ形にしている。
+  await page.goto(base + '#/help');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.collapse').first().waitFor({ timeout: 20_000 });
+
+  const sections = await page.locator('.collapse').count();
+  check('ヘルプが見出しごとに分かれている', sections >= 6, `${sections}個`);
+
+  const openAtFirst = await page.locator('.collapse[open]').count();
+  check('最初に開いているのは1つだけ', openAtFirst === 1, `${openAtFirst}個`);
+
+  // 閉じている見出しの中身は、押すまで出てこない
+  const redactSection = page.locator('.collapse').filter({ hasText: '墨消しの使い方と仕組み' }).first();
+  const beforeText = 'なぜ「画像化」するのか';
+  check('閉じている説明は画面に出ていない', !(await page.getByText(beforeText).isVisible().catch(() => false)));
+  await redactSection.locator('summary').click();
+  await page.waitForTimeout(300);
+  check('見出しを押すと中身が開く', await page.getByText(beforeText).isVisible());
+  await redactSection.locator('summary').click();
+  await page.waitForTimeout(300);
+  check('もう一度押すと閉じる', !(await page.getByText(beforeText).isVisible().catch(() => false)));
+
+  // 設定の自動位置合わせも、行は短いまま説明を畳んでいる
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  const row = page.locator('.switch-row').filter({ hasText: '自動位置合わせ' }).first();
+  const rowText = (await row.innerText()).replace(/\s+/g, '');
+  check('設定の行は短いまま', rowText.length < 30, rowText);
+
+  const detail = '96px幅まで縮めた白黒の簡易画像';
+  check('設定の説明は畳まれている', !(await page.getByText(detail).isVisible().catch(() => false)));
+  await page.locator('summary').filter({ hasText: '自動位置合わせとは' }).click();
+  await page.waitForTimeout(300);
+  check('押すと保存されるものの説明が出る', await page.getByText(detail).isVisible());
+}
+
 console.log('\n[2] ページ整理');
 const samplePdf = await makeSamplePdf(3);
 await page.goto(base + '#/organize');
