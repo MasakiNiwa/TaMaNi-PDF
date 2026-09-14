@@ -13,8 +13,10 @@ import { AppBarAction } from '../../ui/AppBarAction';
 import { Button, IconButton } from '../../ui/Button';
 import { FileDrop } from '../../ui/FileDrop';
 import { Icon } from '../../ui/Icon';
+import { Dialog } from '../../ui/Dialog';
 import { Banner, EmptyState, ProgressBar } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
+import { TemplatePreview } from './TemplatePreview';
 
 type JobStatus = 'waiting' | 'running' | 'done' | 'error';
 
@@ -36,6 +38,8 @@ export function BatchPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [running, setRunning] = useState(false);
   const [pageProgress, setPageProgress] = useState<{ done: number; total: number } | null>(null);
+  /** 書き出す前にテンプレートの当たり位置を確かめるためのファイル */
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const template = useMemo(
@@ -108,6 +112,7 @@ export function BatchPage() {
   }, [template, jobs, settings, patchJob, snackbar]);
 
   const completed = jobs.filter((job) => job.status === 'done');
+  const previewJob = jobs.find((job) => job.id === previewJobId);
 
   const downloadAllAsZip = useCallback(() => {
     if (completed.length === 0) return;
@@ -244,8 +249,49 @@ export function BatchPage() {
             ) : null}
           </section>
 
+          {template && jobs.length > 0 ? (
+            <section className="section">
+              <h2 className="section__title">3. 当たり位置を確かめる</h2>
+              <div className="card card--outlined">
+                <p className="text-small muted">
+                  書式が少しでも違うと、隠したい場所からずれます。
+                  まとめて処理する前に、代表として1つ開いて位置を確かめてください。
+                </p>
+                <div className="row" style={{ marginTop: 10 }}>
+                  <Button
+                    variant="tonal"
+                    icon="visibility"
+                    disabled={running}
+                    onClick={() => setPreviewJobId(jobs[0].id)}
+                  >
+                    1件目でプレビュー
+                  </Button>
+                  {jobs.length > 1 ? (
+                    <select
+                      className="select"
+                      style={{ width: 'auto', minWidth: 180 }}
+                      aria-label="プレビューするファイル"
+                      value=""
+                      disabled={running}
+                      onChange={(event) => {
+                        if (event.target.value) setPreviewJobId(event.target.value);
+                      }}
+                    >
+                      <option value="">別のファイルで見る…</option>
+                      {jobs.map((job) => (
+                        <option key={job.id} value={job.id}>
+                          {job.file.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <section className="section">
-            <h2 className="section__title">3. 実行する</h2>
+            <h2 className="section__title">{template && jobs.length > 0 ? '4' : '3'}. 実行する</h2>
             {running && pageProgress ? (
               <div className="stack" style={{ marginBottom: 12 }}>
                 <ProgressBar value={pageProgress.done} max={pageProgress.total} />
@@ -282,6 +328,15 @@ export function BatchPage() {
           </section>
         </>
       )}
+
+      <Dialog
+        open={previewJob !== undefined && template !== undefined}
+        title="テンプレートの当たり位置"
+        onClose={() => setPreviewJobId(null)}
+        actions={<Button onClick={() => setPreviewJobId(null)}>閉じる</Button>}
+      >
+        {previewJob && template ? <TemplatePreview file={previewJob.file} template={template} /> : null}
+      </Dialog>
 
       <div style={{ marginTop: 16 }}>
         <Banner tone="warning">

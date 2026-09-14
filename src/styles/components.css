@@ -473,9 +473,15 @@
 }
 
 .dropzone--compact {
-  padding: 18px;
+  padding: 12px 16px;
   flex-direction: row;
   justify-content: center;
+  gap: 12px;
+  text-align: left;
+}
+
+.dropzone--compact .dropzone__hint {
+  font-size: 0.75rem;
 }
 
 /* ---------- Empty state ---------- */
