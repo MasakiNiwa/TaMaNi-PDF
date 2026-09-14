@@ -1,16 +1,12 @@
 /*
  * 墨消しの作業レイアウト。
  *
- * 狭い画面では上から順に積み、広い画面 (横向きのスマホを含む) では
- * PDFを高さいっぱいに使い、余った横幅にパネルを置く。
- * 横長のときにPDFだけが小さくなってしまうのを避けるのが狙い。
- */
-/*
- * 墨消しの作業レイアウト。
+ * スマホでは画面の向きによらず「操作 → PDF → 情報」と上から積む。
+ * PC・タブレットのように幅と高さの両方に余裕がある画面でだけ、
+ * 左をPDF専用にして高さいっぱいに使い、操作と情報を右の列にまとめる。
  *
- * 狭い画面では「操作 → PDF → 情報」と上から積む。
- * 広い画面 (横向きのスマホを含む) では左をPDF専用にして高さいっぱいに使い、
- * 操作と情報を右の列にまとめる。横長のときPDFだけが小さくなるのを避けるため。
+ * 高さの条件を付けているのは、横向きのスマホだと左右に分けても
+ * どちらの列も窮屈になり、縦積みのほうが扱いやすいため。
  */
 .redact-workspace {
   display: grid;
@@ -35,7 +31,17 @@
   grid-area: side;
 }
 
-@media (min-width: 760px) {
+/*
+ * 作業中は見出しを出さない (縦の余地を作業面に回す)。
+ * 左右に分かれる画面と、横向きのスマホのように高さが足りない画面の両方で畳む。
+ */
+@media (min-width: 760px) and (min-height: 600px), (max-height: 560px) {
+  .page__header--compact {
+    display: none;
+  }
+}
+
+@media (min-width: 760px) and (min-height: 600px) {
   .redact-workspace {
     grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
     grid-template-rows: auto minmax(0, 1fr);
@@ -48,10 +54,6 @@
     align-items: stretch;
   }
 
-  /* 作業中は見出しを出さない (縦の余地を作業面に回す) */
-  .page__header--compact {
-    display: none;
-  }
 
   .redact-workspace__stage {
     min-height: 0;
@@ -114,7 +116,7 @@
   touch-action: none;
 }
 
-@media (min-width: 760px) {
+@media (min-width: 760px) and (min-height: 600px) {
   /* 高さが決まっている作業面では、高さを基準に幅を決める */
   .redact-stage-wrap {
     height: 100%;
