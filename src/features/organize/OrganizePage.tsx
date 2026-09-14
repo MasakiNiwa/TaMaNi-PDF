@@ -19,7 +19,9 @@ import { createBlankSource, loadAnyFile } from '../../core/pdf/source';
 import { THUMBNAIL_WIDTH_PX } from '../../core/storage/settings';
 import { saveBytes } from '../../core/util/download';
 import { baseName, formatBytes } from '../../core/util/format';
-import { Button, IconButton } from '../../ui/Button';
+import { AppBarAction } from '../../ui/AppBarAction';
+import { Button } from '../../ui/Button';
+import { Dialog } from '../../ui/Dialog';
 import { FileDrop } from '../../ui/FileDrop';
 import { Icon } from '../../ui/Icon';
 import { Banner, EmptyState } from '../../ui/primitives';
@@ -33,13 +35,16 @@ export function OrganizePage() {
   const { settings } = useSettings();
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   const boxWidth = THUMBNAIL_WIDTH_PX[settings.thumbnailSize];
 
   const sensors = useSensors(
     // 少し動かしてからドラッグ開始。ボタンのタップを誤ってドラッグにしないため。
+    // つまみは専用の当たり判定を持っていてスクロールと取り合わないので、
+    // タッチでも待ち時間を置かず、なぞればすぐ動くようにしている。
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
@@ -148,11 +153,21 @@ export function OrganizePage() {
     <div className="page">
       {hasPages ? (
         <AppBarSlot>
-          <IconButton icon="undo" label="元に戻す" disabled={!deck.canUndo} onClick={deck.undo} />
-          <IconButton icon="redo" label="やり直す" disabled={!deck.canRedo} onClick={deck.redo} />
-          <Button variant="filled" icon="download" small onClick={exportPdf} disabled={busy}>
-            書き出す
-          </Button>
+          <AppBarAction
+            icon="undo"
+            label="戻す"
+            description="元に戻す"
+            disabled={!deck.canUndo}
+            onClick={deck.undo}
+          />
+          <AppBarAction icon="redo" label="やり直す" disabled={!deck.canRedo} onClick={deck.redo} />
+          <AppBarAction
+            icon="delete"
+            label="クリア"
+            description="読み込んだPDFをすべて破棄する"
+            danger
+            onClick={() => setConfirmClear(true)}
+          />
         </AppBarSlot>
       ) : null}
 
@@ -275,15 +290,8 @@ export function OrganizePage() {
           </DndContext>
 
           <div className="row" style={{ marginTop: 20 }}>
-            <Button
-              variant="outlined"
-              icon="refresh"
-              onClick={() => {
-                deck.reset();
-                clearSelection();
-              }}
-            >
-              すべてクリア
+            <Button variant="outlined" icon="delete" onClick={() => setConfirmClear(true)}>
+              クリア
             </Button>
             <span className="spacer" />
             <Button variant="filled" icon="download" onClick={exportPdf} disabled={busy}>
@@ -293,9 +301,36 @@ export function OrganizePage() {
         </>
       )}
 
+      <Dialog
+        open={confirmClear}
+        title="クリアしますか?"
+        onClose={() => setConfirmClear(false)}
+        actions={
+          <>
+            <Button onClick={() => setConfirmClear(false)}>キャンセル</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                deck.reset();
+                clearSelection();
+                setConfirmClear(false);
+                snackbar.show('読み込んだPDFを閉じました。');
+              }}
+            >
+              クリアする
+            </Button>
+          </>
+        }
+      >
+        <p style={{ marginBottom: 0 }}>
+          読み込んだ{deck.sources.size}件のファイルと、編集中の{deck.pages.length}ページを破棄して最初の状態に戻ります。
+        </p>
+      </Dialog>
+
       <div style={{ marginTop: 24 }}>
         <Banner tone="info">
-          ページを長押し (PCはドラッグ) すると並べ替えられます。カード右上のチェックで複数ページをまとめて操作できます。
+          各ページの右上にある <Icon name="drag_indicator" size={14} /> のつまみをドラッグすると並べ替えられます。
+          チェックを付けると、複数ページをまとめて回転・複製・削除できます。
         </Banner>
       </div>
 

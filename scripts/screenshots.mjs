@@ -119,7 +119,7 @@ const loadIntoRedact = async (page) => {
   });
   await page.locator('.redact-stage__canvas').waitFor();
   await page.waitForTimeout(2000);
-  const box = await page.locator('.redact-stage__overlay').first().boundingBox();
+  const box = await page.locator('.redact-viewport').first().boundingBox();
   await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.175);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.58, box.y + box.height * 0.225, { steps: 10 });
