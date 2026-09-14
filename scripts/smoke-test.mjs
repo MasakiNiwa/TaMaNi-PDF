@@ -586,14 +586,59 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
     await page.locator('.dropzone').waitFor({ timeout: 20_000 });
   };
 
+  // 一覧の中から名前で選ぶ (テンプレートが増えても取り違えないように)
+  const selectTemplate = async (name) => {
+    const select = page.getByLabel('適用するテンプレート');
+    const value = await select.evaluate((element, needle) => {
+      const option = [...element.options].find((item) => item.textContent.includes(needle));
+      return option ? option.value : '';
+    }, name);
+    await select.selectOption(value);
+  };
+
   const runBatch = async (files) => {
     await openBatch();
-    await page.getByLabel('適用するテンプレート').selectOption({ index: 1 });
+    await selectTemplate('位置合わせ用');
     await page.locator('input[type=file]').first().setInputFiles(files);
     downloads.length = 0;
     await page.getByRole('button', { name: '一括で墨消しする' }).click();
     await page.locator('.batch-item--done').nth(files.length - 1).waitFor({ timeout: 60_000 });
   };
+
+  // 既定はオフ。初めて使う人が、何も選ばないまま画像を保存してしまわないようにしている。
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  const defaultValue = await page.getByLabel('自動位置合わせ').inputValue();
+  check('自動位置合わせの既定はオフ', defaultValue === 'off', defaultValue);
+
+  // オンにしてから、基準画像つきのテンプレートを作る
+  await page.getByLabel('自動位置合わせ').selectOption('on');
+  await page.waitForTimeout(300);
+  await page.goto(base + '#/redact');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('input[type=file]').first().setInputFiles({
+    name: 'align-src.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  await page.locator('#scope-select').selectOption('all');
+  const alignBox = await page.locator('.redact-viewport').first().boundingBox();
+  await page.mouse.move(alignBox.x + alignBox.width * 0.05, alignBox.y + alignBox.height * 0.13);
+  await page.mouse.down();
+  await page.mouse.move(alignBox.x + alignBox.width * 0.55, alignBox.y + alignBox.height * 0.2, { steps: 12 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'テンプレート' }).click();
+  await page.locator('#template-name').fill('位置合わせ用');
+  await page.getByRole('button', { name: '保存する' }).click();
+  await page.waitForTimeout(1200);
+  const savedWithAnchor = await page.evaluate(() => {
+    const raw = JSON.parse(localStorage.getItem('tamani-pdf:templates') ?? '[]');
+    const target = raw.find((item) => item.name === '位置合わせ用');
+    return Boolean(target && target.anchor && target.anchor.fingerprint.data.length > 1000);
+  });
+  check('オンのときは基準画像つきで保存される', savedWithAnchor);
 
   // まずはずれていないPDF。ここが基準の位置になる。
   await runBatch([{ name: 'align-base.pdf', mimeType: 'application/pdf', buffer: samplePdf }]);
@@ -628,7 +673,7 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
 
   // プレビューにも同じ補正がかかり、一致度が表示されること
   await openBatch();
-  await page.getByLabel('適用するテンプレート').selectOption({ index: 1 });
+  await selectTemplate('位置合わせ用');
   await page.locator('input[type=file]').first().setInputFiles([
     { name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted },
   ]);
@@ -650,7 +695,7 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   await page.getByLabel('自動位置合わせ').selectOption('off');
   await page.waitForTimeout(300);
   await openBatch();
-  await page.getByLabel('適用するテンプレート').selectOption({ index: 1 });
+  await selectTemplate('位置合わせ用');
   await page.locator('input[type=file]').first().setInputFiles([
     { name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted },
   ]);
@@ -658,7 +703,7 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   await page.locator('.preview-stage__canvas').waitFor({ timeout: 20_000 });
   await page.waitForTimeout(2500);
   const offText = await page.locator('.dialog').innerText();
-  check('設定で切ると自動位置合わせを行わない', offText.includes('自動位置合わせなし'), offText.slice(-120));
+  check('設定で切ると自動位置合わせを行わない', offText.includes('オフ'), offText.slice(-120));
   const rawTop = await page.locator('.preview-rect').first().evaluate((element) => {
     const box = element.getBoundingClientRect();
     const stage = element.parentElement.getBoundingClientRect();
@@ -671,9 +716,22 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   );
   await page.locator('.dialog').getByRole('button', { name: '閉じる' }).click();
 
-  // 後片付け: 設定を元に戻す
+  // オフのときは、ヘルプの説明も既定の書き方に切り替わる
+  await page.goto(base + '#/help');
+  await page.reload({ waitUntil: 'load' });
+  const helpOff = await page.locator('.page').innerText();
+  check('ヘルプの説明がオフ向けになる', helpOff.includes('オフ (既定)'), '');
   await page.goto(base + '#/settings');
   await page.getByLabel('自動位置合わせ').selectOption('on');
+  await page.waitForTimeout(300);
+  await page.goto(base + '#/help');
+  await page.reload({ waitUntil: 'load' });
+  const helpOn = await page.locator('.page').innerText();
+  check('ヘルプの説明がオン向けになる', helpOn.includes('オンです'), '');
+
+  // 後片付け: 既定 (オフ) に戻す
+  await page.goto(base + '#/settings');
+  await page.getByLabel('自動位置合わせ').selectOption('off');
   await page.waitForTimeout(300);
 }
 
