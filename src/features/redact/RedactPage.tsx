@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppBarSlot } from '../../app/AppBarSlot';
+import { hrefFor } from '../../app/routes';
 import { useSettings } from '../../app/SettingsContext';
 import { useHistoryState } from '../../app/useHistoryState';
 import { useTemplates } from '../../app/TemplatesContext';
@@ -82,9 +83,8 @@ export function RedactPage() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
-  const [loadDialogOpen, setLoadDialogOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => setColor(settings.defaultRedactColor), [settings.defaultRedactColor]);
@@ -167,6 +167,17 @@ export function RedactPage() {
     [history],
   );
 
+  const goToPage = useCallback(
+    (next: number) => {
+      setPageIndex((current) => {
+        const target = Math.min(Math.max(0, next), Math.max(0, pageCount - 1));
+        return target === current ? current : target;
+      });
+      setSelectedId(null);
+    },
+    [pageCount],
+  );
+
   /** ボタンでの拡大縮小。表示領域の中心を軸にする。 */
   const changeZoom = useCallback((direction: 1 | -1) => {
     const element = stageRef.current?.querySelector('.redact-viewport');
@@ -217,7 +228,7 @@ export function RedactPage() {
   const saveTemplate = useCallback(() => {
     if (rects.length === 0) return;
     templates.create(templateName, rects, pageCount);
-    setSaveDialogOpen(false);
+    setTemplateDialogOpen(false);
     setTemplateName('');
     snackbar.success('テンプレートを保存しました。');
   }, [rects, templateName, templates, pageCount, snackbar]);
@@ -229,7 +240,7 @@ export function RedactPage() {
       // id を振り直して、元のテンプレートと編集中の範囲を切り離す
       history.commit(template.rects.map((rect) => ({ ...rect, id: createId('rect') })));
       setSelectedId(null);
-      setLoadDialogOpen(false);
+      setTemplateDialogOpen(false);
       snackbar.success(`テンプレート「${template.name}」を読み込みました。`);
     },
     [templates.templates, snackbar, history],
@@ -267,23 +278,28 @@ export function RedactPage() {
           <Icon name="draw" size={24} />
           墨消し
         </h1>
-        <p className="page__lead">
-          隠したい部分をドラッグで囲みます。全ページを画像に変換してから塗りつぶすので、下に隠れた文字も残りません。
-        </p>
+        {/* 読み込んだあとは前置きを畳む。PDFに辿り着くまでのスクロールを短くするため。 */}
+        {!pdf ? (
+          <p className="page__lead">
+            隠したい部分をドラッグで囲みます。全ページを画像に変換してから塗りつぶすので、下に隠れた文字も残りません。
+          </p>
+        ) : null}
       </header>
 
-      <div className="stack" style={{ marginBottom: 20 }}>
+      <div className="stack" style={{ marginBottom: pdf ? 12 : 20 }}>
         <FileDrop
           accept="application/pdf"
           icon={pdf ? 'refresh' : 'upload'}
           compact={Boolean(pdf)}
-          title={pdf ? `別のPDFに切り替える (現在: ${pdf.name})` : 'PDFをドラッグ&ドロップ、またはタップして選択'}
-          hint={pdf ? undefined : '1つのPDFを読み込んで墨消しします。'}
+          title={pdf ? '別のPDFに切り替える' : 'PDFをドラッグ&ドロップ、またはタップして選択'}
+          hint={pdf ? `現在: ${pdf.name}` : '1つのPDFを読み込んで墨消しします。'}
           onFiles={loadFile}
         />
-        <Banner tone="warning">
-          出力されるPDFは<strong>画像として作り直した</strong>ものになります。文字検索・テキスト選択・しおり・注釈は失われます。
-        </Banner>
+        {!pdf ? (
+          <Banner tone="warning">
+            出力されるPDFは<strong>画像として作り直した</strong>ものになります。文字検索・テキスト選択・しおり・注釈は失われます。
+          </Banner>
+        ) : null}
       </div>
 
       {!pdf ? (
@@ -345,6 +361,48 @@ export function RedactPage() {
                 />
               </span>
 
+              {/*
+                ページ送りとテンプレートは、以前はPDFの下に置いていた。
+                スマホだと毎回PDFを通り越してスワイプする必要があったため、
+                常に見えている位置 (画面上部に貼り付くツールバー) へ移した。
+              */}
+              {pageCount > 1 ? (
+                <>
+                  <span className="toolbar__divider" />
+                  <span className="redact-pager">
+                    <IconButton
+                      icon="chevron_left"
+                      label="前のページ"
+                      small
+                      disabled={pageIndex === 0}
+                      onClick={() => goToPage(pageIndex - 1)}
+                    />
+                    <span className="redact-pager__label">
+                      {pageIndex + 1} / {pageCount}
+                    </span>
+                    <IconButton
+                      icon="chevron_right"
+                      label="次のページ"
+                      small
+                      disabled={pageIndex >= pageCount - 1}
+                      onClick={() => goToPage(pageIndex + 1)}
+                    />
+                  </span>
+                </>
+              ) : null}
+
+              <span className="toolbar__divider" />
+              <Button
+                small
+                variant="outlined"
+                icon="save"
+                onClick={() => {
+                  if (!templateName) setTemplateName(baseName(pdf.name));
+                  setTemplateDialogOpen(true);
+                }}
+              >
+                テンプレート
+              </Button>
             </div>
 
             <div ref={stageRef}>
@@ -364,34 +422,17 @@ export function RedactPage() {
               />
             </div>
 
-            <div className="redact-pager">
-              <IconButton
-                icon="chevron_left"
-                label="前のページ"
-                disabled={pageIndex === 0}
-                onClick={() => {
-                  setPageIndex((index) => Math.max(0, index - 1));
-                  setSelectedId(null);
-                }}
-              />
-              <span className="redact-pager__label">
-                {pageIndex + 1} / {pageCount}
-              </span>
-              <IconButton
-                icon="chevron_right"
-                label="次のページ"
-                disabled={pageIndex >= pageCount - 1}
-                onClick={() => {
-                  setPageIndex((index) => Math.min(pageCount - 1, index + 1));
-                  setSelectedId(null);
-                }}
-              />
-            </div>
-
             <p className="text-small muted" style={{ marginTop: 10 }}>
               ドラッグで範囲を追加。範囲をタップすると、動かしたり右下のつまみで大きさを変えたりできます。
               2本指でつまむと拡大・縮小、そのまま2本指を動かすと表示位置を移動できます。
             </p>
+
+            <div style={{ marginTop: 12 }}>
+              <Banner tone="warning">
+                出力されるPDFは<strong>画像として作り直した</strong>ものになります。
+                文字検索・テキスト選択・しおり・注釈は失われます。
+              </Banner>
+            </div>
 
             <div className="row" style={{ marginTop: 12 }}>
               <Button variant="outlined" icon="delete" onClick={() => setConfirmClear(true)}>
@@ -454,52 +495,22 @@ export function RedactPage() {
               ) : null}
             </div>
 
-            <div className="card card--outlined">
-              <h3 style={{ marginBottom: 8 }}>テンプレート</h3>
-              <p className="text-small muted">
-                同じ書式のPDFを繰り返し墨消しするなら、範囲をテンプレートとして保存しておくと次回そのまま使えます。
-              </p>
-              <div className="row" style={{ marginTop: 10 }}>
-                <Button
-                  small
-                  variant="tonal"
-                  icon="save"
-                  disabled={rects.length === 0}
-                  onClick={() => {
-                    setTemplateName(baseName(pdf.name));
-                    setSaveDialogOpen(true);
-                  }}
-                >
-                  保存
-                </Button>
-                <Button
-                  small
-                  variant="outlined"
-                  icon="upload"
-                  disabled={templates.templates.length === 0}
-                  onClick={() => setLoadDialogOpen(true)}
-                >
-                  呼び出し ({templates.templates.length})
-                </Button>
-              </div>
-            </div>
           </aside>
         </div>
       )}
 
       <Dialog
-        open={saveDialogOpen}
-        title="テンプレートとして保存"
-        onClose={() => setSaveDialogOpen(false)}
-        actions={
-          <>
-            <Button onClick={() => setSaveDialogOpen(false)}>キャンセル</Button>
-            <Button variant="filled" onClick={saveTemplate}>
-              保存する
-            </Button>
-          </>
-        }
+        open={templateDialogOpen}
+        title="テンプレート"
+        onClose={() => setTemplateDialogOpen(false)}
+        actions={<Button onClick={() => setTemplateDialogOpen(false)}>閉じる</Button>}
       >
+        <p className="text-small muted">
+          同じ書式のPDFを繰り返し墨消しするなら、範囲をテンプレートとして保存しておくと次回そのまま使えます。
+          <a href={hrefFor('batch')}>一括墨消し</a> でまとめて適用することもできます。
+        </p>
+
+        <h3 style={{ marginTop: 16, marginBottom: 8 }}>いまの範囲を保存する</h3>
         <div className="field">
           <label className="field__label" htmlFor="template-name">
             テンプレート名
@@ -512,30 +523,44 @@ export function RedactPage() {
             onChange={(event) => setTemplateName(event.target.value)}
             placeholder="例: 〇〇社 請求書"
           />
-          <span className="field__hint">{rects.length}個の範囲を保存します。この端末のブラウザにだけ保存されます。</span>
+          <span className="field__hint">
+            {rects.length}個の範囲を保存します。この端末のブラウザにだけ保存されます。
+          </span>
         </div>
-      </Dialog>
+        <div className="row" style={{ marginTop: 10 }}>
+          <Button variant="tonal" icon="save" disabled={rects.length === 0} onClick={saveTemplate}>
+            保存する
+          </Button>
+        </div>
 
-      <Dialog open={loadDialogOpen} title="テンプレートを呼び出す" onClose={() => setLoadDialogOpen(false)}>
-        <div className="template-list">
-          {templates.templates.map((template) => (
-            <div className="template-item" key={template.id}>
-              <div className="template-item__body">
-                <div className="template-item__name">{template.name}</div>
-                <div className="template-item__meta">
-                  {template.rects.length}個の範囲
-                  {template.sourcePageCount ? ` ・ 作成時 ${template.sourcePageCount}ページ` : ''}
+        <h3 style={{ marginTop: 24, marginBottom: 8 }}>保存済みから呼び出す ({templates.templates.length})</h3>
+        {templates.templates.length === 0 ? (
+          <p className="text-small muted" style={{ marginBottom: 0 }}>
+            まだテンプレートがありません。
+          </p>
+        ) : (
+          <>
+            <div className="template-list">
+              {templates.templates.map((template) => (
+                <div className="template-item" key={template.id}>
+                  <div className="template-item__body">
+                    <div className="template-item__name">{template.name}</div>
+                    <div className="template-item__meta">
+                      {template.rects.length}個の範囲
+                      {template.sourcePageCount ? ` ・ 作成時 ${template.sourcePageCount}ページ` : ''}
+                    </div>
+                  </div>
+                  <Button small variant="tonal" onClick={() => applyTemplate(template.id)}>
+                    読み込む
+                  </Button>
                 </div>
-              </div>
-              <Button small variant="tonal" onClick={() => applyTemplate(template.id)}>
-                読み込む
-              </Button>
+              ))}
             </div>
-          ))}
-        </div>
-        <p className="text-small muted" style={{ marginTop: 12 }}>
-          読み込むと、いま指定している範囲は置き換わります。
-        </p>
+            <p className="text-small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+              読み込むと、いま指定している範囲は置き換わります。
+            </p>
+          </>
+        )}
       </Dialog>
 
       <Dialog

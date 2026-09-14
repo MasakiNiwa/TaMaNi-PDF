@@ -188,15 +188,28 @@ export function OrganizePage() {
           disabled={busy}
           icon={hasPages ? 'add' : 'upload'}
           compact={hasPages}
-          title={hasPages ? 'PDF・画像を追加する' : 'PDFをドラッグ&ドロップ、またはタップして選択'}
-          hint={hasPages ? undefined : '複数のPDFをまとめて読み込めます。JPEG・PNGもページとして追加できます。'}
+          title={hasPages ? 'PDF・画像を追加する' : 'PDF・画像をドラッグ&ドロップ、またはタップして選択'}
+          hint={
+            hasPages
+              ? undefined
+              : 'PDFだけでなく、JPEG・PNGの画像からでも始められます。複数まとめて選べます。'
+          }
           onFiles={addFiles}
         />
       </div>
 
       {!hasPages ? (
         <EmptyState icon="pages" title="まだページがありません">
-          PDFを読み込むとページの一覧が表示されます。
+          <p>
+            PDFや画像を読み込むとページの一覧が表示されます。
+            <br />
+            何もないところから作り始めることもできます。
+          </p>
+          <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
+            <Button variant="tonal" icon="note_add" onClick={addBlankPage} disabled={busy}>
+              空白ページから始める
+            </Button>
+          </div>
         </EmptyState>
       ) : (
         <>

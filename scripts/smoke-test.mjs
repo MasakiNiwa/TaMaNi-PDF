@@ -76,20 +76,37 @@ function pdfContainsText(bytes, needle) {
 }
 
 /**
- * 要素の中の「画面に見えている」点を返す。
+ * 要素の「画面に見えている部分」を一度だけ測って返す。
+ *
  * 表示領域はページの下の方にあるため、素直に中心を取るとブラウザの窓の外になり、
- * マウス操作が何にも当たらなくなる。
+ * マウス操作が何にも当たらない。また測るたびにスクロールすると、
+ * 1点目と2点目でずれてドラッグが成立しなくなるので、まとめて測る。
  */
-async function pointIn(page, locator, fx = 0.5, fy = 0.5) {
+async function visibleBand(page, locator) {
   await locator.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
   const box = await locator.boundingBox();
   const view = page.viewportSize();
-  const top = Math.max(box.y, 8);
-  const bottom = Math.min(box.y + box.height, view.height - 8);
-  return {
-    x: box.x + box.width * fx,
-    y: top + (bottom - top) * fy,
+  // 上はアプリバーとツールバー、下は下部ナビが貼り付いていて要素を覆うので、その内側を使う
+  const obstruct = async (selector, edge) => {
+    const found = await page.locator(selector).first().boundingBox().catch(() => null);
+    if (!found) return null;
+    return edge === 'bottom' ? found.y + found.height : found.y;
   };
+  const appBarBottom = (await obstruct('.app-bar', 'bottom')) ?? 0;
+  const toolbarBottom = (await obstruct('.toolbar', 'bottom')) ?? 0;
+  const bottomNavTop = (await obstruct('.bottom-nav', 'top')) ?? view.height;
+
+  const top = Math.max(box.y, appBarBottom + 8, toolbarBottom + 8, 8);
+  const bottom = Math.min(box.y + box.height, bottomNavTop - 8, view.height - 8);
+  if (bottom - top < 40) throw new Error('操作できる範囲が足りません (画面が狭すぎます)');
+  return {
+    at: (fx, fy) => ({ x: box.x + box.width * fx, y: top + (bottom - top) * fy }),
+  };
+}
+
+async function pointIn(page, locator, fx = 0.5, fy = 0.5) {
+  return (await visibleBand(page, locator)).at(fx, fy);
 }
 
 const failures = [];
@@ -415,18 +432,18 @@ console.log('\n[3b] 墨消しの取り消しとクリア');
 {
   // 直前の手順で別のPDFを読み込み直しているため、ここで範囲を引き直してから履歴を試す。
   // 表示領域は画面の外へはみ出していることがあるので、見えている位置を選んで操作する。
-  const viewport = page.locator('.redact-viewport').first();
+  const band = await visibleBand(page, page.locator('.redact-viewport').first());
   for (const [fromY, toY] of [
-    [0.15, 0.25],
-    [0.35, 0.45],
+    [0.12, 0.22],
+    [0.4, 0.5],
   ]) {
-    const from = await pointIn(page, viewport, 0.15, fromY);
-    const to = await pointIn(page, viewport, 0.6, toY);
+    const from = band.at(0.15, fromY);
+    const to = band.at(0.6, toY);
     await page.mouse.move(from.x, from.y);
     await page.mouse.down();
     await page.mouse.move(to.x, to.y, { steps: 8 });
     await page.mouse.up();
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(250);
   }
   const countBefore = await page.locator('.rect-list__item').count();
   check('範囲を2件引ける', countBefore === 2, String(countBefore));
@@ -460,9 +477,12 @@ await page.mouse.move(box4.x + box4.width * 0.55, box4.y + box4.height * 0.2, { 
 await page.mouse.up();
 
 console.log('\n[4] テンプレートと一括墨消し');
-await page.getByRole('button', { name: '保存' }).click();
+await page.getByRole('button', { name: 'テンプレート' }).click();
 await page.locator('#template-name').fill('テスト用テンプレート');
 await page.getByRole('button', { name: '保存する' }).click();
+// 保存するとダイアログは自動で閉じる
+await page.waitForTimeout(500);
+check('保存後にテンプレートのダイアログが閉じる', (await page.locator('.dialog').count()) === 0);
 await page.waitForTimeout(500);
 
 await page.goto(base + '#/batch');
@@ -480,6 +500,26 @@ downloads.length = 0;
 await page.getByRole('button', { name: '一括で墨消しする' }).click();
 await page.locator('.batch-item--done').nth(1).waitFor({ timeout: 60_000 });
 check('2件とも完了する', (await page.locator('.batch-item--done').count()) === 2);
+
+// 書き出す前に、テンプレートの当たり位置を確かめられること
+await page.getByRole('button', { name: '1件目でプレビュー' }).click();
+await page.locator('.preview-stage__canvas').waitFor({ timeout: 20_000 });
+await page.waitForTimeout(2500);
+check('適用前にプレビューを開ける', await page.locator('.preview-stage').isVisible());
+const previewRects = await page.locator('.preview-rect').count();
+check('プレビューに範囲が重なって見える', previewRects >= 1, String(previewRects));
+const previewShape = await page.evaluate(() => {
+  const canvas = document.querySelector('.preview-stage__canvas');
+  const box = document.querySelector('.preview-stage').getBoundingClientRect();
+  return { canvasRatio: canvas.width / canvas.height, boxRatio: box.width / box.height };
+});
+check(
+  'プレビューの縦横比がページと合う',
+  Math.abs(previewShape.canvasRatio - previewShape.boxRatio) < 0.02,
+  `canvas ${previewShape.canvasRatio.toFixed(3)} / box ${previewShape.boxRatio.toFixed(3)}`,
+);
+await page.locator('.dialog').getByRole('button', { name: '閉じる' }).click();
+await page.waitForTimeout(300);
 
 await page.getByRole('button', { name: /まとめてZIPで保存/ }).click();
 await page.waitForTimeout(2000);
@@ -622,6 +662,46 @@ console.log('\n[5] スマホのタッチ操作');
     const scaleAfter = await readScale();
     check('スマホ: 2本指のピンチで拡大できる', scaleAfter > scaleBefore * 1.3, `${scaleBefore} -> ${scaleAfter}`);
     check('スマホ: ピンチの倍率は上限内に収まる', scaleAfter <= 4.01, String(scaleAfter));
+
+    // ちらつきの検証。
+    // かつては (1) 表示領域の高さをJSで決めていたため大きさが往復し、
+    // (2) 倍率が変わるたびに描き直していたため、同じキャンバスに二重に描いて
+    // 絵が壊れる、という2つの問題があった。どちらも「揺れないこと」で確認する。
+    const samples = await touchPage.evaluate(async () => {
+      const viewport = document.querySelector('.redact-viewport');
+      const canvas = document.querySelector('.redact-stage__canvas');
+      const widths = new Set();
+      const bitmaps = new Set();
+      for (let i = 0; i < 30; i += 1) {
+        widths.add(Math.round(viewport.getBoundingClientRect().width));
+        bitmaps.add(`${canvas.width}x${canvas.height}`);
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      return { widths: [...widths], bitmaps: [...bitmaps] };
+    });
+    check('スマホ: 表示領域の大きさが揺れない', samples.widths.length === 1, samples.widths.join(','));
+    check(
+      'スマホ: 描き直しが繰り返されない',
+      samples.bitmaps.length <= 2,
+      samples.bitmaps.join(' / '),
+    );
+
+    // 描き直したあとも、ページの縦横比どおりの絵になっている (上下反転や潰れの検出)
+    await touchPage.waitForTimeout(1200);
+    const shape = await touchPage.evaluate(() => {
+      const canvas = document.querySelector('.redact-stage__canvas');
+      const viewport = document.querySelector('.redact-viewport');
+      const box = viewport.getBoundingClientRect();
+      return {
+        canvasRatio: canvas.width / canvas.height,
+        boxRatio: box.width / box.height,
+      };
+    });
+    check(
+      'スマホ: 拡大後も絵の縦横比が保たれる',
+      Math.abs(shape.canvasRatio - shape.boxRatio) < 0.02,
+      `canvas ${shape.canvasRatio.toFixed(3)} / box ${shape.boxRatio.toFixed(3)}`,
+    );
 
     // 拡大したまま、1本指で範囲を動かせること (上下方向)
     await touchPage.getByRole('button', { name: '幅に合わせる' }).click();

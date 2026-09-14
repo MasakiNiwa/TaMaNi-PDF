@@ -25,11 +25,31 @@
 .redact-viewport {
   position: relative;
   overflow: hidden;
+  width: 100%;
+  /*
+   * 形はCSSに任せる。JSで高さを測って決めると、その高さでページの
+   * スクロールバーの有無が変わり、幅が変わってまた高さが変わる往復が起きる。
+   * --page-ratio は「幅 ÷ 高さ」で、ステージ側から渡される。
+   */
+  aspect-ratio: var(--page-ratio, 0.707);
+  /*
+   * 縦に長くなりすぎないよう上限を設ける。
+   * スマホでPDFが画面いっぱいに伸びると、その下にある操作へ届くまで
+   * 延々とスワイプすることになるため。細かい指定は拡大で補える。
+   */
+  max-width: calc(62svh * var(--page-ratio, 0.707));
+  margin: 0 auto;
   background: #ffffff;
   box-shadow: var(--elev-2);
   cursor: crosshair;
   /* 範囲の指定とピンチ操作を自前で扱うので、ブラウザ既定の操作は止める */
   touch-action: none;
+}
+
+@media (min-width: 1024px) {
+  .redact-viewport {
+    max-width: calc(72svh * var(--page-ratio, 0.707));
+  }
 }
 
 .redact-stage {
@@ -288,4 +308,28 @@
 
 .batch-item--error .batch-item__status {
   color: var(--md-error);
+}
+
+/* ---------- テンプレートの当たり位置プレビュー (読むだけ) ---------- */
+
+.preview-stage {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--page-ratio, 0.707);
+  max-width: calc(52svh * var(--page-ratio, 0.707));
+  margin: 0 auto;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: var(--elev-1);
+}
+
+.preview-stage__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.preview-rect {
+  position: absolute;
+  outline: 1.5px solid var(--md-primary);
 }

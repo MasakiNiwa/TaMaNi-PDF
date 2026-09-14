@@ -38,6 +38,8 @@ export interface RenderToCanvasOptions {
   scale?: number;
   canvas?: HTMLCanvasElement;
   background?: string;
+  /** 途中で不要になったときに描画を打ち切るための合図 */
+  signal?: AbortSignal;
 }
 
 /** 1ページをキャンバスへ描画する */
@@ -47,6 +49,7 @@ export async function renderPageToCanvas(
   options: RenderToCanvasOptions = {},
 ): Promise<HTMLCanvasElement> {
   return renderLimiter(async () => {
+    if (options.signal?.aborted) throw new DOMException('描画が不要になりました。', 'AbortError');
     const page = await proxy.getPage(pageIndex + 1);
     const rotation = (((page.rotate + (options.rotation ?? 0)) % 360) + 360) % 360;
     const base = page.getViewport({ scale: 1, rotation });
@@ -64,7 +67,16 @@ export async function renderPageToCanvas(
     context.fillStyle = options.background ?? '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
 
-    await page.render({ canvas, viewport, background: options.background ?? '#ffffff' }).promise;
+    const task = page.render({ canvas, viewport, background: options.background ?? '#ffffff' });
+    // 表示倍率が次々変わるときは、前の描画を打ち切ってから次を描く。
+    // 同じキャンバスに二重に描くと、pdf.js が途中状態のまま壊れた絵を残す。
+    const onAbort = () => task.cancel();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      await task.promise;
+    } finally {
+      options.signal?.removeEventListener('abort', onAbort);
+    }
     page.cleanup();
     return canvas;
   });

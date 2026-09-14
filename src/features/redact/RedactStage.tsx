@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -18,6 +17,8 @@ const BASE_RENDER_WIDTH = 1400;
 const MAX_RENDER_WIDTH = 2600;
 /** これより小さい範囲は誤操作とみなす (正規化座標) */
 const MIN_RECT_SIZE = 0.006;
+/** 拡大をやめてから描き直すまでの待ち時間 (ms) */
+const REDRAW_DELAY = 220;
 
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
@@ -29,7 +30,7 @@ export interface Rect {
   h: number;
 }
 
-/** 表示位置。scale は倍率、offset は表示領域の左上から見たページ左上のずれ (px)。 */
+/** 表示位置。scale は倍率、x/y は表示領域の左上から見たページ左上のずれ (px)。 */
 export interface View {
   scale: number;
   x: number;
@@ -100,29 +101,25 @@ export function RedactStage({
   /** 画面に触れている指 (ピンチの判定に使う) */
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; midX: number; midY: number; view: View } | null>(null);
+  /** 指を触れているあいだは true。描き直しを先送りするために見る。 */
+  const gestureActiveRef = useRef(false);
 
   const [draft, setDraft] = useState<Rect | null>(null);
   const [rendering, setRendering] = useState(true);
-  const [aspect, setAspect] = useState(1.414);
-  const [viewportWidth, setViewportWidth] = useState(0);
-
-  // 表示領域の幅を測る。ページの縦横比と合わせて、等倍でちょうど収まる高さを決める。
-  useLayoutEffect(() => {
-    const element = viewportRef.current;
-    if (!element) return;
-    const update = () => setViewportWidth(element.clientWidth);
-    update();
-    if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(update);
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
+  /** ページの縦横比 (幅 ÷ 高さ)。表示領域の形をCSSに任せるために使う。 */
+  const [pageRatio, setPageRatio] = useState(595.28 / 841.89);
+  /**
+   * 描画に使う倍率。
+   * 表示倍率をそのまま使うと、ピンチのあいだ毎フレーム描き直すことになり
+   * 画面がちらつく。整数段階に丸めたうえで、操作が落ち着いてから反映する。
+   */
+  const [renderScale, setRenderScale] = useState(1);
 
   useEffect(() => {
     let alive = true;
     getPageSize(proxy, pageIndex)
       .then((size) => {
-        if (alive && size.width > 0) setAspect(size.height / size.width);
+        if (alive && size.width > 0 && size.height > 0) setPageRatio(size.width / size.height);
       })
       .catch(() => undefined);
     return () => {
@@ -130,27 +127,48 @@ export function RedactStage({
     };
   }, [proxy, pageIndex]);
 
-  // 拡大したときは描き直して、拡大してもぼやけないようにする
-  const renderWidth = Math.min(MAX_RENDER_WIDTH, Math.round(BASE_RENDER_WIDTH * Math.max(1, view.scale)));
+  // 拡大が落ち着いたら、その倍率に見合う解像度で描き直す
+  useEffect(() => {
+    const target = clamp(Math.ceil(view.scale), MIN_ZOOM, MAX_ZOOM);
+    if (target === renderScale) return;
+    let timer = 0;
+    const apply = () => {
+      // 指が触れているあいだは待つ (ピンチの途中で描き直さない)
+      if (gestureActiveRef.current) {
+        timer = window.setTimeout(apply, 120);
+        return;
+      }
+      setRenderScale(target);
+    };
+    timer = window.setTimeout(apply, REDRAW_DELAY);
+    return () => window.clearTimeout(timer);
+  }, [view.scale, renderScale]);
 
   useEffect(() => {
-    let alive = true;
-    setRendering(true);
     const canvas = canvasRef.current;
     if (!canvas) return;
-    renderPageToCanvas(proxy, pageIndex, { targetWidth: renderWidth, canvas })
-      .then(() => {
-        if (alive) setRendering(false);
+    const controller = new AbortController();
+    setRendering(true);
+
+    const targetWidth = Math.min(MAX_RENDER_WIDTH, BASE_RENDER_WIDTH * renderScale);
+    // 画面に出ていないキャンバスへ描いてから、一度にコピーする。
+    // 表示中のキャンバスへ直接描くと、描いている途中の白紙が見えてちらつく。
+    renderPageToCanvas(proxy, pageIndex, { targetWidth, signal: controller.signal })
+      .then((offscreen) => {
+        if (controller.signal.aborted) return;
+        canvas.width = offscreen.width;
+        canvas.height = offscreen.height;
+        canvas.getContext('2d', { alpha: false })?.drawImage(offscreen, 0, 0);
+        offscreen.width = 0;
+        offscreen.height = 0;
+        setRendering(false);
       })
       .catch(() => {
-        if (alive) setRendering(false);
+        if (!controller.signal.aborted) setRendering(false);
       });
-    return () => {
-      alive = false;
-    };
-  }, [proxy, pageIndex, renderWidth]);
 
-  const viewportHeight = viewportWidth * aspect;
+    return () => controller.abort();
+  }, [proxy, pageIndex, renderScale]);
 
   /** ポインタ位置をページに対する 0〜1 の座標へ変換する (表示倍率とずれを打ち消す) */
   const toNormalized = useCallback(
@@ -173,6 +191,7 @@ export function RedactStage({
 
   const trackPointer = (event: ReactPointerEvent) => {
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    gestureActiveRef.current = true;
     viewportRef.current?.setPointerCapture?.(event.pointerId);
   };
 
@@ -260,11 +279,7 @@ export function RedactStage({
       // これだけで、つまむ動き = 拡大縮小、2本指をずらす動き = 表示位置の移動 になる。
       onViewChange(
         clampView(
-          {
-            scale,
-            x: midX - bounds.left - anchorX * scale,
-            y: midY - bounds.top - anchorY * scale,
-          },
+          { scale, x: midX - bounds.left - anchorX * scale, y: midY - bounds.top - anchorY * scale },
           bounds.width,
           bounds.height,
         ),
@@ -311,6 +326,7 @@ export function RedactStage({
   const endGesture = (event: ReactPointerEvent) => {
     pointersRef.current.delete(event.pointerId);
     if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (pointersRef.current.size === 0) gestureActiveRef.current = false;
 
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
@@ -369,7 +385,12 @@ export function RedactStage({
       <div
         className="redact-viewport"
         ref={viewportRef}
-        style={{ height: viewportHeight > 0 ? viewportHeight : undefined }}
+        /*
+         * 高さはCSSの aspect-ratio に任せる。
+         * JSで測って高さを決めると、その高さでページのスクロールバーの有無が変わり、
+         * 幅が変わってまた高さが変わる、という往復でちらつく。
+         */
+        style={{ ['--page-ratio' as string]: String(pageRatio) }}
         onPointerDown={onViewportPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endGesture}
