@@ -88,9 +88,12 @@ async function visibleBand(page, locator) {
   const box = await locator.boundingBox();
   const view = page.viewportSize();
   // 上はアプリバーとツールバー、下は下部ナビが貼り付いていて要素を覆うので、その内側を使う
+  // 横方向に重なっている要素だけを「覆っているもの」として扱う。
+  // 広い画面ではツールバーが横に並ぶので、それを避けると操作できる範囲がなくなってしまう。
+  const overlapsX = (other) => other.x < box.x + box.width && other.x + other.width > box.x;
   const obstruct = async (selector, edge) => {
     const found = await page.locator(selector).first().boundingBox().catch(() => null);
-    if (!found) return null;
+    if (!found || !overlapsX(found)) return null;
     return edge === 'bottom' ? found.y + found.height : found.y;
   };
   const appBarBottom = (await obstruct('.app-bar', 'bottom')) ?? 0;
@@ -724,6 +727,63 @@ console.log('\n[5] スマホのタッチ操作');
   );
 
   await touchContext.close();
+}
+
+console.log('\n[5b] 横長の画面');
+{
+  // 横向きのスマホでは、PDFが小さくなって横のスペースが余っていた。
+  // 左をPDF専用にして高さいっぱいに使い、操作は右の列へ、という配置になっているか見る。
+  const wide = await browser.newContext({ viewport: { width: 844, height: 390 }, hasTouch: true });
+  const widePage = await wide.newPage();
+  widePage.setDefaultTimeout(20_000);
+  await widePage.goto(base + '#/redact');
+  await widePage.locator('.dropzone').waitFor({ timeout: 20_000 });
+  await widePage.locator('input[type=file]').first().setInputFiles({
+    name: 'secret.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await widePage.locator('.redact-viewport').waitFor({ timeout: 20_000 });
+  await widePage.waitForTimeout(2500);
+
+  const boxes = await widePage.evaluate(() => {
+    const pick = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    };
+    return {
+      viewport: pick('.redact-viewport'),
+      tools: pick('.redact-workspace__tools'),
+      side: pick('.redact-workspace__side'),
+      windowHeight: window.innerHeight,
+      scrollHeight: document.documentElement.scrollHeight,
+    };
+  });
+
+  check(
+    '横長: PDFが画面の高さをおおむね使う',
+    boxes.viewport.h > boxes.windowHeight * 0.6,
+    `${Math.round(boxes.viewport.h)} / ${boxes.windowHeight}`,
+  );
+  check(
+    '横長: 操作パネルがPDFの右にある',
+    boxes.tools.x > boxes.viewport.x + boxes.viewport.w - 2,
+    `pdf右端 ${Math.round(boxes.viewport.x + boxes.viewport.w)} / パネル左端 ${Math.round(boxes.tools.x)}`,
+  );
+  check(
+    '横長: 情報パネルもPDFの右にある',
+    boxes.side.x > boxes.viewport.x + boxes.viewport.w - 2,
+    `${Math.round(boxes.side.x)}`,
+  );
+  check(
+    '横長: ページ全体がスクロールしない',
+    boxes.scrollHeight <= boxes.windowHeight + 4,
+    `${boxes.scrollHeight} / ${boxes.windowHeight}`,
+  );
+
+  await wide.close();
 }
 
 console.log('\n[6] 通信とエラー');

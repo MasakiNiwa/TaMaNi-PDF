@@ -149,6 +149,9 @@ await shoot('mobile-home', { width: 390, height: 844, route: '' });
 await shoot('mobile-organize', { width: 390, height: 844, route: '#/organize', setup: loadIntoOrganize });
 await shoot('mobile-redact', { width: 390, height: 844, route: '#/redact', setup: loadIntoRedact });
 await shoot('mobile-settings-dark', { width: 390, height: 844, route: '#/settings', dark: true });
+// 横向きのスマホ (ここでPDFが小さくなってしまう問題があった)
+await shoot('landscape-redact', { width: 844, height: 390, route: '#/redact', setup: loadIntoRedact });
+await shoot('landscape-organize', { width: 844, height: 390, route: '#/organize', setup: loadIntoOrganize });
 
 await browser.close();
 server.close();
