@@ -12,43 +12,37 @@
 }
 
 .redact-stage-wrap {
-  display: flex;
-  justify-content: center;
   padding: 12px;
   border-radius: var(--shape-lg);
   background: var(--md-surface-container);
-  overflow: auto;
-  /* 拡大中は指でスワイプして表示位置を動かせるようにする */
-  overscroll-behavior: contain;
+}
+
+/*
+ * ページを覗く窓。
+ * 拡大や移動は中身の transform で行い、この窓自体は動かさない。
+ * スクロール頼みにすると、拡大時に縦方向へ動かせないなどの取りこぼしが出るため。
+ */
+.redact-viewport {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: var(--elev-2);
+  cursor: crosshair;
+  /* 範囲の指定とピンチ操作を自前で扱うので、ブラウザ既定の操作は止める */
+  touch-action: none;
 }
 
 .redact-stage {
-  position: relative;
-  flex: none;
-  display: block;
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
   line-height: 0;
-  box-shadow: var(--elev-2);
-  background: #ffffff;
 }
 
 .redact-stage__canvas {
   display: block;
   width: 100%;
-  height: auto;
-}
-
-.redact-stage__overlay {
-  position: absolute;
-  inset: 0;
-  cursor: crosshair;
-  /* 範囲を描くあいだブラウザのスクロールに邪魔されないようにする */
-  touch-action: none;
-}
-
-/* 表示位置を動かすモードでは、操作をそのままスクロールへ渡す */
-.redact-stage__overlay--pan {
-  pointer-events: none;
-  touch-action: auto;
+  height: 100%;
 }
 
 .redact-stage__loading {
@@ -92,12 +86,13 @@
   cursor: crosshair;
 }
 
-/* つまみより手前に置く。重なったときに削除ボタンを押せなくなるのを防ぐ。 */
+/* 削除ボタンとつまみは、拡大しても大きさが変わらないよう個別に打ち消す */
 .redact-rect__remove {
   position: absolute;
   z-index: 3;
   top: -14px;
   right: -14px;
+  transform-origin: center;
   display: grid;
   place-items: center;
   width: 26px;
@@ -112,72 +107,30 @@
 }
 
 /*
- * サイズ変更のつまみ。
- * 指で掴めるよう、見た目より広い当たり判定 (::before) を持たせている。
+ * 大きさを変えるつまみ (右下のみ)。
+ * 角ひとつあれば調整できるので、指で押しやすい大きさを優先して数を絞っている。
  */
 .redact-handle {
   position: absolute;
   z-index: 2;
-  width: 14px;
-  height: 14px;
+  right: -9px;
+  bottom: -9px;
+  transform-origin: center;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: 2px solid var(--md-primary);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--md-surface-container-lowest);
   touch-action: none;
-  cursor: pointer;
+  cursor: nwse-resize;
 }
 
-/* 指で掴めるように当たり判定を広げる。広げすぎると削除ボタンと取り合いになる。 */
+/* 指で掴めるように当たり判定を広げる */
 .redact-handle::before {
   content: '';
   position: absolute;
-  inset: -9px;
-}
-
-.redact-handle--nw {
-  left: -7px;
-  top: -7px;
-  cursor: nwse-resize;
-}
-.redact-handle--n {
-  left: 50%;
-  top: -7px;
-  margin-left: -7px;
-  cursor: ns-resize;
-}
-.redact-handle--ne {
-  right: -7px;
-  top: -7px;
-  cursor: nesw-resize;
-}
-.redact-handle--e {
-  right: -7px;
-  top: 50%;
-  margin-top: -7px;
-  cursor: ew-resize;
-}
-.redact-handle--se {
-  right: -7px;
-  bottom: -7px;
-  cursor: nwse-resize;
-}
-.redact-handle--s {
-  left: 50%;
-  bottom: -7px;
-  margin-left: -7px;
-  cursor: ns-resize;
-}
-.redact-handle--sw {
-  left: -7px;
-  bottom: -7px;
-  cursor: nesw-resize;
-}
-.redact-handle--w {
-  left: -7px;
-  top: 50%;
-  margin-top: -7px;
-  cursor: ew-resize;
+  inset: -10px;
 }
 
 .redact-zoom {

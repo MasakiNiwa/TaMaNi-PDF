@@ -1,28 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useHistoryState } from '../../app/useHistoryState';
 import { closePdf } from '../../core/pdf/pdfjs';
 import { ThumbnailCache } from '../../core/pdf/render';
 import { normalizeRotation, type PageRef, type PdfSource, type Rotation } from '../../core/pdf/types';
 import { createId } from '../../core/util/id';
 
-const HISTORY_LIMIT = 50;
-
 /**
- * ページの並びと、その操作履歴 (Undo/Redo) を持つ。
+ * ページの並びと、その操作履歴 (元に戻す / やり直す) を持つ。
  *
  * 履歴に積むのは PageRef の配列だけで、PDFの実体はコピーしない。
  * PageRef は「どの供給元の何ページ目か」を指すだけの軽い値なので、
- * 何十回 Undo してもメモリを圧迫しない。
+ * 何十回戻してもメモリを圧迫しない。
  */
-interface History {
-  stack: PageRef[][];
-  index: number;
-}
-
-const EMPTY_HISTORY: History = { stack: [[]], index: 0 };
-
 export function usePageDeck() {
   const [sources, setSources] = useState<Map<string, PdfSource>>(() => new Map());
-  const [history, setHistory] = useState<History>(EMPTY_HISTORY);
+  const history = useHistoryState<PageRef[]>([]);
 
   const thumbnails = useMemo(() => new ThumbnailCache(), []);
   const sourcesRef = useRef(sources);
@@ -37,31 +29,8 @@ export function usePageDeck() {
     };
   }, [thumbnails]);
 
-  const pages = history.stack[history.index];
-
-  const commit = useCallback((next: PageRef[] | ((current: PageRef[]) => PageRef[])) => {
-    setHistory((current) => {
-      const currentPages = current.stack[current.index];
-      const resolved = typeof next === 'function' ? next(currentPages) : next;
-      if (resolved === currentPages) return current;
-      // やり直し分を捨ててから新しい状態を積む
-      const stack = [...current.stack.slice(0, current.index + 1), resolved];
-      const overflow = Math.max(0, stack.length - HISTORY_LIMIT);
-      const trimmed = stack.slice(overflow);
-      return { stack: trimmed, index: trimmed.length - 1 };
-    });
-  }, []);
-
-  const canUndo = history.index > 0;
-  const canRedo = history.index < history.stack.length - 1;
-
-  const undo = useCallback(() => {
-    setHistory((current) => ({ ...current, index: Math.max(0, current.index - 1) }));
-  }, []);
-
-  const redo = useCallback(() => {
-    setHistory((current) => ({ ...current, index: Math.min(current.stack.length - 1, current.index + 1) }));
-  }, []);
+  const pages = history.value;
+  const commit = history.commit;
 
   const addSource = useCallback(
     (source: PdfSource, newPages: PageRef[]) => {
@@ -77,8 +46,8 @@ export function usePageDeck() {
       void closePdf(source.proxy);
     }
     setSources(new Map());
-    setHistory(EMPTY_HISTORY);
-  }, [thumbnails]);
+    history.reset([]);
+  }, [thumbnails, history]);
 
   const rotatePages = useCallback(
     (ids: ReadonlySet<string> | null, delta: number) => {
@@ -143,10 +112,10 @@ export function usePageDeck() {
     sources,
     pages,
     thumbnails,
-    canUndo,
-    canRedo,
-    undo,
-    redo,
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
+    undo: history.undo,
+    redo: history.redo,
     addSource,
     reset,
     rotatePages,

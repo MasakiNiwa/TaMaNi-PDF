@@ -61,7 +61,48 @@
 .app-bar__actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
+}
+
+/* アイコンの下に小さく名前を出す操作ボタン */
+.appbar-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 52px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--shape-md);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  cursor: pointer;
+  transition: background var(--dur-short) var(--ease-standard);
+}
+
+.appbar-action:not(:disabled):hover {
+  background: color-mix(in srgb, var(--md-on-surface) 10%, transparent);
+}
+
+.appbar-action:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.appbar-action--danger {
+  color: var(--md-error);
+}
+
+.appbar-action--danger:not(:disabled):hover {
+  background: color-mix(in srgb, var(--md-error) 12%, transparent);
+}
+
+.appbar-action__label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 /* 狭い画面ではタグラインを隠し、その分を画面ごとの操作ボタンに使う */

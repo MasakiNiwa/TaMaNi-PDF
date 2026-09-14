@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
+import { useHistoryState } from '../../app/useHistoryState';
 import { useTemplates } from '../../app/TemplatesContext';
 import { PdfUserError } from '../../core/pdf/errors';
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from '../../core/pdf/pdfjs';
@@ -9,13 +10,22 @@ import { scopeLabel, scopeMatches, type PageScope, type TemplateRect } from '../
 import { saveBytes } from '../../core/util/download';
 import { baseName } from '../../core/util/format';
 import { createId } from '../../core/util/id';
+import { AppBarAction } from '../../ui/AppBarAction';
 import { Button, IconButton } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { FileDrop } from '../../ui/FileDrop';
 import { Icon } from '../../ui/Icon';
 import { Banner, EmptyState, ProgressBar, Segmented } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
-import { RedactStage, type Rect } from './RedactStage';
+import {
+  DEFAULT_VIEW,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  RedactStage,
+  clampView,
+  type Rect,
+  type View,
+} from './RedactStage';
 
 type ScopeChoice = 'page' | 'all' | 'odd' | 'even' | 'last';
 
@@ -27,8 +37,8 @@ const SCOPE_OPTIONS: Array<{ value: ScopeChoice; label: string }> = [
   { value: 'last', label: '最終ページ' },
 ];
 
-/** 拡大率の段階。指で切り替えるので、細かすぎない刻みにしている。 */
-const ZOOM_STEPS = [1, 1.5, 2, 3, 4] as const;
+/** ボタンで拡大縮小するときの刻み */
+const ZOOM_FACTOR = 1.5;
 
 function toScope(choice: ScopeChoice, pageIndex: number): PageScope {
   switch (choice) {
@@ -60,12 +70,14 @@ export function RedactPage() {
 
   const [pdf, setPdf] = useState<LoadedPdf | null>(null);
   const [pageIndex, setPageIndex] = useState(0);
-  const [rects, setRects] = useState<TemplateRect[]>([]);
+  // 範囲は取り消し / やり直しの対象にする
+  const history = useHistoryState<TemplateRect[]>([]);
+  const rects = history.value;
   const [color, setColor] = useState<RedactColor>(settings.defaultRedactColor);
   const [scopeChoice, setScopeChoice] = useState<ScopeChoice>('page');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [panMode, setPanMode] = useState(false);
+  const [view, setView] = useState<View>(DEFAULT_VIEW);
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -76,11 +88,6 @@ export function RedactPage() {
   const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => setColor(settings.defaultRedactColor), [settings.defaultRedactColor]);
-
-  // 等倍に戻したら表示位置を動かす必要がないので、範囲を描くモードへ戻す
-  useEffect(() => {
-    if (zoom <= 1) setPanMode(false);
-  }, [zoom]);
 
   // 画面を離れるときに pdf.js のドキュメントを解放する
   const pdfRef = useRef<LoadedPdf | null>(null);
@@ -103,29 +110,29 @@ export function RedactPage() {
         void closePdf(pdfRef.current?.proxy);
         setPdf({ name: file.name, bytes, proxy, pageCount: proxy.numPages });
         setPageIndex(0);
-        setRects([]);
+        history.reset([]);
         setSelectedId(null);
-        setZoom(1);
+        setView(DEFAULT_VIEW);
       } catch (error) {
         const message =
           error instanceof PdfUserError ? error.message : `「${file.name}」を読み込めませんでした。`;
         snackbar.error(message);
       }
     },
-    [snackbar],
+    [snackbar, history],
   );
 
   /** PDFを閉じて最初の画面へ戻す */
   const clearAll = useCallback(() => {
     void closePdf(pdfRef.current?.proxy);
     setPdf(null);
-    setRects([]);
+    history.reset([]);
     setSelectedId(null);
     setPageIndex(0);
-    setZoom(1);
+    setView(DEFAULT_VIEW);
     setConfirmClear(false);
     snackbar.show('読み込んだPDFを閉じました。');
-  }, [snackbar]);
+  }, [snackbar, history]);
 
   const pageCount = pdf?.pageCount ?? 0;
 
@@ -137,27 +144,41 @@ export function RedactPage() {
   const addRect = useCallback(
     (draft: Rect) => {
       const id = createId('rect');
-      setRects((current) => [...current, { id, ...draft, color, scope: toScope(scopeChoice, pageIndex) }]);
+      history.commit((current) => [...current, { id, ...draft, color, scope: toScope(scopeChoice, pageIndex) }]);
       // 追加した直後から位置やサイズを直せるよう選択状態にする
       setSelectedId(id);
     },
-    [color, scopeChoice, pageIndex],
+    [color, scopeChoice, pageIndex, history],
   );
 
-  const updateRect = useCallback((id: string, next: Rect) => {
-    setRects((current) => current.map((rect) => (rect.id === id ? { ...rect, ...next } : rect)));
-  }, []);
+  /** ドラッグ中の追従。指を離すまで履歴には積まない。 */
+  const updateRect = useCallback(
+    (id: string, next: Rect) => {
+      history.setLive((current) => current.map((rect) => (rect.id === id ? { ...rect, ...next } : rect)));
+    },
+    [history],
+  );
 
-  const removeRect = useCallback((id: string) => {
-    setRects((current) => current.filter((rect) => rect.id !== id));
-    setSelectedId((current) => (current === id ? null : current));
-  }, []);
+  const removeRect = useCallback(
+    (id: string) => {
+      history.commit((current) => current.filter((rect) => rect.id !== id));
+      setSelectedId((current) => (current === id ? null : current));
+    },
+    [history],
+  );
 
+  /** ボタンでの拡大縮小。表示領域の中心を軸にする。 */
   const changeZoom = useCallback((direction: 1 | -1) => {
-    setZoom((current) => {
-      const index = ZOOM_STEPS.indexOf(current as (typeof ZOOM_STEPS)[number]);
-      const next = Math.min(ZOOM_STEPS.length - 1, Math.max(0, (index < 0 ? 0 : index) + direction));
-      return ZOOM_STEPS[next];
+    const element = stageRef.current?.querySelector('.redact-viewport');
+    const bounds = element?.getBoundingClientRect();
+    setView((current) => {
+      const scale = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, current.scale * (direction > 0 ? ZOOM_FACTOR : 1 / ZOOM_FACTOR)));
+      if (!bounds) return { scale, x: 0, y: 0 };
+      const cx = bounds.width / 2;
+      const cy = bounds.height / 2;
+      const anchorX = (cx - current.x) / current.scale;
+      const anchorY = (cy - current.y) / current.scale;
+      return clampView({ scale, x: cx - anchorX * scale, y: cy - anchorY * scale }, bounds.width, bounds.height);
     });
   }, []);
 
@@ -206,28 +227,38 @@ export function RedactPage() {
       const template = templates.templates.find((item) => item.id === id);
       if (!template) return;
       // id を振り直して、元のテンプレートと編集中の範囲を切り離す
-      setRects(template.rects.map((rect) => ({ ...rect, id: createId('rect') })));
+      history.commit(template.rects.map((rect) => ({ ...rect, id: createId('rect') })));
       setSelectedId(null);
       setLoadDialogOpen(false);
       snackbar.success(`テンプレート「${template.name}」を読み込みました。`);
     },
-    [templates.templates, snackbar],
+    [templates.templates, snackbar, history],
   );
 
   return (
     <div className="page">
       {pdf ? (
         <AppBarSlot>
-          <IconButton icon="refresh" label="クリアして最初に戻る" onClick={() => setConfirmClear(true)} />
-          <Button
-            variant="filled"
-            icon="download"
-            small
-            onClick={runRedaction}
-            disabled={rects.length === 0 || progress !== null}
-          >
-            書き出す
-          </Button>
+          <AppBarAction
+            icon="undo"
+            label="戻す"
+            description="元に戻す"
+            disabled={!history.canUndo}
+            onClick={history.undo}
+          />
+          <AppBarAction
+            icon="redo"
+            label="やり直す"
+            disabled={!history.canRedo}
+            onClick={history.redo}
+          />
+          <AppBarAction
+            icon="delete"
+            label="クリア"
+            description="クリアして最初に戻る"
+            danger
+            onClick={() => setConfirmClear(true)}
+          />
         </AppBarSlot>
       ) : null}
 
@@ -294,52 +325,44 @@ export function RedactPage() {
                   icon="zoom_out"
                   label="縮小"
                   small
-                  disabled={zoom <= ZOOM_STEPS[0]}
+                  disabled={view.scale <= MIN_ZOOM}
                   onClick={() => changeZoom(-1)}
                 />
-                <span className="redact-zoom__value">{Math.round(zoom * 100)}%</span>
+                <span className="redact-zoom__value">{Math.round(view.scale * 100)}%</span>
                 <IconButton
                   icon="zoom_in"
                   label="拡大"
                   small
-                  disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+                  disabled={view.scale >= MAX_ZOOM}
                   onClick={() => changeZoom(1)}
                 />
                 <IconButton
                   icon="fit_screen"
                   label="幅に合わせる"
                   small
-                  disabled={zoom === 1}
-                  onClick={() => setZoom(1)}
+                  disabled={view.scale === 1 && view.x === 0 && view.y === 0}
+                  onClick={() => setView(DEFAULT_VIEW)}
                 />
               </span>
 
-              {zoom > 1 ? (
-                <Segmented
-                  ariaLabel="操作モード"
-                  value={panMode ? 'pan' : 'draw'}
-                  options={[
-                    { value: 'draw', label: '範囲' },
-                    { value: 'pan', label: '移動' },
-                  ]}
-                  onChange={(value) => setPanMode(value === 'pan')}
-                />
-              ) : null}
             </div>
 
-            <RedactStage
-              proxy={pdf.proxy}
-              pageIndex={pageIndex}
-              rects={visibleRects}
-              drawColor={color}
-              zoom={zoom}
-              panMode={panMode}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              onAddRect={addRect}
-              onUpdateRect={updateRect}
-              onRemoveRect={removeRect}
-            />
+            <div ref={stageRef}>
+              <RedactStage
+                proxy={pdf.proxy}
+                pageIndex={pageIndex}
+                rects={visibleRects}
+                drawColor={color}
+                view={view}
+                onViewChange={setView}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onAddRect={addRect}
+                onUpdateRect={updateRect}
+                onCommitRect={history.commitCurrent}
+                onRemoveRect={removeRect}
+              />
+            </div>
 
             <div className="redact-pager">
               <IconButton
@@ -366,9 +389,24 @@ export function RedactPage() {
             </div>
 
             <p className="text-small muted" style={{ marginTop: 10 }}>
-              ドラッグで範囲を追加。範囲をタップすると、動かしたり四隅のつまみで大きさを変えたりできます。
-              {zoom > 1 ? '拡大中は「移動」に切り替えると表示位置を動かせます。' : ''}
+              ドラッグで範囲を追加。範囲をタップすると、動かしたり右下のつまみで大きさを変えたりできます。
+              2本指でつまむと拡大・縮小、そのまま2本指を動かすと表示位置を移動できます。
             </p>
+
+            <div className="row" style={{ marginTop: 12 }}>
+              <Button variant="outlined" icon="delete" onClick={() => setConfirmClear(true)}>
+                クリア
+              </Button>
+              <span className="spacer" />
+              <Button
+                variant="filled"
+                icon="download"
+                onClick={runRedaction}
+                disabled={rects.length === 0 || progress !== null}
+              >
+                墨消しして書き出す
+              </Button>
+            </div>
           </div>
 
           <aside className="stack">
@@ -406,7 +444,7 @@ export function RedactPage() {
                     variant="outlined"
                     icon="delete"
                     onClick={() => {
-                      setRects([]);
+                      history.commit([]);
                       setSelectedId(null);
                     }}
                   >

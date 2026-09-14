@@ -9,6 +9,7 @@ import { rectsForPage } from '../../core/storage/templates';
 import { saveBytes } from '../../core/util/download';
 import { baseName, formatBytes, sanitizeFileName } from '../../core/util/format';
 import { createId } from '../../core/util/id';
+import { AppBarAction } from '../../ui/AppBarAction';
 import { Button, IconButton } from '../../ui/Button';
 import { FileDrop } from '../../ui/FileDrop';
 import { Icon } from '../../ui/Icon';
@@ -129,17 +130,19 @@ export function BatchPage() {
 
   return (
     <div className="page">
-      {template && jobs.length > 0 ? (
+      {jobs.length > 0 ? (
         <AppBarSlot>
-          {running ? (
-            <Button variant="danger" icon="stop" small onClick={() => abortRef.current?.abort()}>
-              中止
-            </Button>
-          ) : (
-            <Button variant="filled" icon="play" small onClick={run}>
-              実行
-            </Button>
-          )}
+          <AppBarAction
+            icon="delete"
+            label="クリア"
+            description="選んだPDFの一覧を空にする"
+            danger
+            disabled={running}
+            onClick={() => {
+              setJobs([]);
+              snackbar.show('一覧を空にしました。');
+            }}
+          />
         </AppBarSlot>
       ) : null}
 
