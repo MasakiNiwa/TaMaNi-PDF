@@ -4,7 +4,9 @@
  * 確認すること:
  *  1. 各画面がエラーなく表示できる
  *  2. ページ整理: PDFを読み込み、回転・並べ替え・削除して書き出せる
+ *     (つまみをドラッグして順番が入れ替わることを含む)
  *  3. 墨消し: 範囲を指定して書き出すと、隠した文字がPDFから消えている
+ *     範囲の移動・サイズ変更・拡大表示・クリアが動く
  *  4. テンプレートの保存と一括墨消しが動く
  *  5. 外部ドメインへの通信が1件も発生しない (最重要)
  *
@@ -178,7 +180,7 @@ check('削除後は2ページ', (await page.locator('.page-card').count()) === 2
 await page.getByRole('button', { name: '右に回転' }).first().click();
 
 downloads.length = 0;
-await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+await page.getByRole('button', { name: '書き出す', exact: true }).click();
 await page.waitForTimeout(2500);
 if (downloads[0]) {
   const rotated = await PDFDocument.load(downloads[0].body);
@@ -189,6 +191,34 @@ if (downloads[0]) {
   );
 }
 
+// つまみをドラッグして1枚目と2枚目を入れ替える。
+// alt は「何枚目か」なので並べ替えでは変わらない。中身が動いたかはサムネイル画像の
+// URL の並びで見る (URL は元ページごとに固有)。
+const thumbOrder = () =>
+  page.locator('.page-card img').evaluateAll((images) => images.map((image) => image.getAttribute('src')));
+
+const orderBefore = await thumbOrder();
+if (orderBefore.length >= 2) {
+  const from = await page.locator('.page-card__drag').first().boundingBox();
+  const to = await page.locator('.page-card').nth(1).boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  // 一度ずらしてからゆっくり動かす (dnd-kit は少し動かさないとドラッグを開始しない)
+  await page.mouse.move(from.x + from.width / 2 + 20, from.y + from.height / 2, { steps: 5 });
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 15 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const orderAfter = await thumbOrder();
+  check(
+    'つまみのドラッグでページを並べ替えられる',
+    orderAfter[0] === orderBefore[1] && orderAfter[1] === orderBefore[0],
+    `${orderBefore.join(',')} -> ${orderAfter.join(',')}`,
+  );
+  // 並べ替えた分を戻しておく
+  await page.getByRole('button', { name: '元に戻す' }).click();
+  await page.waitForTimeout(200);
+}
+
 // Undo/Redo (削除と回転の2手を戻す)
 await page.getByRole('button', { name: '元に戻す' }).click();
 await page.getByRole('button', { name: '元に戻す' }).click();
@@ -197,7 +227,7 @@ await page.getByRole('button', { name: 'やり直す' }).click();
 check('やり直すで2ページへ戻る', (await page.locator('.page-card').count()) === 2);
 
 downloads.length = 0;
-await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+await page.getByRole('button', { name: '書き出す', exact: true }).click();
 await page.waitForTimeout(2500);
 check('PDFが書き出される', downloads.length === 1, JSON.stringify(downloads.map((d) => d.name)));
 if (downloads[0]) {
@@ -231,8 +261,55 @@ await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.2, { step
 await page.mouse.up();
 check('範囲が1件追加される', (await page.locator('.redact-rect').count()) >= 1);
 
+// 追加した直後は選択状態になり、つまみが出る
+check('追加した範囲につまみが出る', (await page.locator('.redact-handle').count()) === 8);
+
+const rectBox = () => page.locator('.redact-rect').first().boundingBox();
+const before = await rectBox();
+
+// 範囲をドラッグして動かす
+await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
+await page.mouse.down();
+await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2 + 40, { steps: 10 });
+await page.mouse.up();
+const moved = await rectBox();
+check('範囲をドラッグして動かせる', Math.abs(moved.y - before.y) > 20, `${before.y} -> ${moved.y}`);
+check('動かしても大きさは変わらない', Math.abs(moved.height - before.height) < 3);
+
+// 右下のつまみを引いて大きくする
+const handle = await page.locator('.redact-handle--se').boundingBox();
+await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+await page.mouse.down();
+await page.mouse.move(handle.x + handle.width / 2 + 60, handle.y + handle.height / 2 + 30, { steps: 10 });
+await page.mouse.up();
+const resized = await rectBox();
+check(
+  'つまみで範囲の大きさを変えられる',
+  resized.width > moved.width + 30 && resized.height > moved.height + 10,
+  `${moved.width}x${moved.height} -> ${resized.width}x${resized.height}`,
+);
+
+// 拡大表示
+const stageBefore = (await page.locator('.redact-stage').boundingBox()).width;
+await page.getByRole('button', { name: '拡大' }).click();
+await page.waitForTimeout(1200);
+const stageAfter = (await page.locator('.redact-stage').boundingBox()).width;
+check('拡大すると表示が大きくなる', stageAfter > stageBefore * 1.3, `${stageBefore} -> ${stageAfter}`);
+check('拡大中は移動モードに切り替えられる', await page.getByRole('radio', { name: '移動' }).isVisible());
+await page.getByRole('button', { name: '幅に合わせる' }).click();
+await page.waitForTimeout(800);
+
+// テストの残りに影響しないよう、範囲を元の位置へ引き直す
+await page.locator('.redact-rect').first().click();
+await page.getByRole('button', { name: 'この範囲を削除' }).click();
+const box3 = await page.locator('.redact-stage__overlay').first().boundingBox();
+await page.mouse.move(box3.x + box3.width * 0.05, box3.y + box3.height * 0.13);
+await page.mouse.down();
+await page.mouse.move(box3.x + box3.width * 0.55, box3.y + box3.height * 0.2, { steps: 12 });
+await page.mouse.up();
+
 downloads.length = 0;
-await page.getByRole('button', { name: '墨消しして書き出す' }).click();
+await page.getByRole('button', { name: '書き出す', exact: true }).click();
 await page.waitForTimeout(9000);
 check('墨消しPDFが書き出される', downloads.length === 1, JSON.stringify(downloads.map((d) => d.name)));
 if (downloads[0]) {
@@ -280,21 +357,28 @@ if (downloads[0]) {
   check('墨消しした範囲が黒く塗りつぶされている', isBlack, JSON.stringify(sample.inside));
   check('指定していない範囲は塗られていない', isWhite, JSON.stringify(sample.outside));
 
-  // 次の手順でテンプレートを保存するため、元のPDFと範囲を作り直す
-  await page.locator('input[type=file]').first().setInputFiles({
-    name: 'secret.pdf',
-    mimeType: 'application/pdf',
-    buffer: samplePdf,
-  });
-  await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
-  await page.waitForTimeout(1500);
-  await page.locator('#scope-select').selectOption('all');
-  const box2 = await page.locator('.redact-stage__overlay').first().boundingBox();
-  await page.mouse.move(box2.x + box2.width * 0.05, box2.y + box2.height * 0.13);
-  await page.mouse.down();
-  await page.mouse.move(box2.x + box2.width * 0.55, box2.y + box2.height * 0.2, { steps: 12 });
-  await page.mouse.up();
 }
+
+console.log('\n[3b] クリア');
+await page.getByRole('button', { name: 'クリアして最初に戻る' }).click();
+await page.getByRole('button', { name: 'クリアする' }).click();
+await page.waitForTimeout(600);
+check('クリアで最初の画面に戻る', (await page.locator('.redact-stage').count()) === 0);
+
+// テンプレート保存のため、もう一度読み込んで範囲を引く
+await page.locator('input[type=file]').first().setInputFiles({
+  name: 'secret.pdf',
+  mimeType: 'application/pdf',
+  buffer: samplePdf,
+});
+await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+await page.waitForTimeout(1500);
+await page.locator('#scope-select').selectOption('all');
+const box4 = await page.locator('.redact-stage__overlay').first().boundingBox();
+await page.mouse.move(box4.x + box4.width * 0.05, box4.y + box4.height * 0.13);
+await page.mouse.down();
+await page.mouse.move(box4.x + box4.width * 0.55, box4.y + box4.height * 0.2, { steps: 12 });
+await page.mouse.up();
 
 console.log('\n[4] テンプレートと一括墨消し');
 await page.getByRole('button', { name: '保存' }).click();
@@ -314,7 +398,7 @@ await page.locator('input[type=file]').first().setInputFiles([
 check('2件が一覧に並ぶ', (await page.locator('.batch-item').count()) === 2);
 
 downloads.length = 0;
-await page.getByRole('button', { name: '一括で墨消しする' }).click();
+await page.getByRole('button', { name: '実行', exact: true }).click();
 await page.locator('.batch-item--done').nth(1).waitFor({ timeout: 60_000 });
 check('2件とも完了する', (await page.locator('.batch-item--done').count()) === 2);
 
@@ -322,7 +406,116 @@ await page.getByRole('button', { name: /まとめてZIPで保存/ }).click();
 await page.waitForTimeout(2000);
 check('ZIPが書き出される', downloads.some((d) => d.name.endsWith('.zip')), JSON.stringify(downloads.map((d) => d.name)));
 
-console.log('\n[5] 通信とエラー');
+console.log('\n[5] スマホのタッチ操作');
+{
+  // 実機の指操作に近づけるため、タッチ対応のコンテキストとCDPのタッチイベントを使う。
+  // v0.1.0 では並べ替え用の当たり判定がページ全体を覆っていて、
+  // 「長押しして動かしても並べ替えられない」不具合があったため、ここで作り分けを検証する。
+  const touchContext = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const touchPage = await touchContext.newPage();
+  touchPage.setDefaultTimeout(20_000);
+  const cdp = await touchContext.newCDPSession(touchPage);
+
+  const touch = async (type, x, y) => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 12, radiusY: 12, force: 1 }],
+    });
+  };
+  const touchDrag = async (from, to, { holdMs = 300, steps = 12 } = {}) => {
+    await touch('touchStart', from.x, from.y);
+    await touchPage.waitForTimeout(holdMs);
+    for (let i = 1; i <= steps; i += 1) {
+      await touch('touchMove', from.x + ((to.x - from.x) * i) / steps, from.y + ((to.y - from.y) * i) / steps);
+      await touchPage.waitForTimeout(16);
+    }
+    await touchPage.waitForTimeout(60);
+    await touch('touchEnd', to.x, to.y);
+  };
+  const center = async (locator) => {
+    const box = await locator.boundingBox();
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+
+  await touchPage.goto(base + '#/organize');
+  await touchPage.locator('.dropzone').waitFor({ timeout: 20_000 });
+  await touchPage.locator('input[type=file]').first().setInputFiles({
+    name: 'sample.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await touchPage.locator('.page-card').first().waitFor({ timeout: 20_000 });
+  await touchPage.waitForTimeout(2500);
+
+  const touchThumbOrder = () =>
+    touchPage.locator('.page-card img').evaluateAll((images) => images.map((i) => i.getAttribute('src')));
+
+  // (1) つまみを長押しして動かすと並べ替えられる
+  const beforeOrder = await touchThumbOrder();
+  await touchDrag(await center(touchPage.locator('.page-card__drag').first()), await center(touchPage.locator('.page-card').nth(1)));
+  await touchPage.waitForTimeout(500);
+  const afterOrder = await touchThumbOrder();
+  check(
+    'スマホ: つまみを長押しして並べ替えられる',
+    afterOrder[0] === beforeOrder[1] && afterOrder[1] === beforeOrder[0],
+    `${beforeOrder.length}枚 ${beforeOrder[0] === afterOrder[0] ? '順序が変わらなかった' : ''}`,
+  );
+
+  // (2) つまみ以外を指でなぞったときは、並べ替えではなく画面のスクロールになる
+  const orderBeforeScroll = await touchThumbOrder();
+  const scrollBefore = await touchPage.evaluate(() => window.scrollY);
+  const cardCenter = await center(touchPage.locator('.page-card').first());
+  await touchDrag(cardCenter, { x: cardCenter.x, y: cardCenter.y - 260 }, { holdMs: 0, steps: 10 });
+  await touchPage.waitForTimeout(400);
+  const scrollAfter = await touchPage.evaluate(() => window.scrollY);
+  check('スマホ: ページ一覧を指でスクロールできる', scrollAfter > scrollBefore + 40, `${scrollBefore} -> ${scrollAfter}`);
+  check(
+    'スマホ: スクロールでは並び順が変わらない',
+    (await touchThumbOrder()).join() === orderBeforeScroll.join(),
+  );
+
+  // (3) 墨消し: 指のドラッグで範囲を追加できる
+  await touchPage.goto(base + '#/redact');
+  await touchPage.locator('.dropzone').waitFor({ timeout: 20_000 });
+  await touchPage.locator('input[type=file]').first().setInputFiles({
+    name: 'secret.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await touchPage.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+  await touchPage.waitForTimeout(2000);
+  const stageBox = await touchPage.locator('.redact-stage__overlay').first().boundingBox();
+  await touchDrag(
+    { x: stageBox.x + stageBox.width * 0.1, y: stageBox.y + stageBox.height * 0.15 },
+    { x: stageBox.x + stageBox.width * 0.6, y: stageBox.y + stageBox.height * 0.22 },
+    { holdMs: 0 },
+  );
+  await touchPage.waitForTimeout(300);
+  check('スマホ: 指のドラッグで範囲を追加できる', (await touchPage.locator('.redact-rect').count()) >= 1);
+
+  // (4) 指で範囲を動かせる
+  const rectBefore = await touchPage.locator('.redact-rect').first().boundingBox();
+  await touchDrag(
+    { x: rectBefore.x + rectBefore.width / 2, y: rectBefore.y + rectBefore.height / 2 },
+    { x: rectBefore.x + rectBefore.width / 2, y: rectBefore.y + rectBefore.height / 2 + 60 },
+    { holdMs: 0 },
+  );
+  await touchPage.waitForTimeout(300);
+  const rectAfter = await touchPage.locator('.redact-rect').first().boundingBox();
+  check(
+    'スマホ: 指で範囲を動かせる',
+    Math.abs(rectAfter.y - rectBefore.y) > 30,
+    `${Math.round(rectBefore.y)} -> ${Math.round(rectAfter.y)}`,
+  );
+
+  await touchContext.close();
+}
+
+console.log('\n[6] 通信とエラー');
 const violations = (await page.evaluate(() => window.__cspViolations ?? [])) ?? [];
 cspViolations.push(...violations);
 check('外部ドメインへの通信が0件', externalRequests.length === 0, externalRequests.join(', '));

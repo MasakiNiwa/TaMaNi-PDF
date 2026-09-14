@@ -18,12 +18,14 @@
   border-radius: var(--shape-lg);
   background: var(--md-surface-container);
   overflow: auto;
+  /* 拡大中は指でスワイプして表示位置を動かせるようにする */
+  overscroll-behavior: contain;
 }
 
 .redact-stage {
   position: relative;
+  flex: none;
   display: block;
-  max-width: 100%;
   line-height: 0;
   box-shadow: var(--elev-2);
   background: #ffffff;
@@ -33,20 +35,35 @@
   display: block;
   width: 100%;
   height: auto;
-  max-width: 100%;
 }
 
 .redact-stage__overlay {
   position: absolute;
   inset: 0;
   cursor: crosshair;
+  /* 範囲を描くあいだブラウザのスクロールに邪魔されないようにする */
   touch-action: none;
+}
+
+/* 表示位置を動かすモードでは、操作をそのままスクロールへ渡す */
+.redact-stage__overlay--pan {
+  pointer-events: none;
+  touch-action: auto;
+}
+
+.redact-stage__loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
 }
 
 .redact-rect {
   position: absolute;
   border: 1.5px solid var(--md-primary);
   box-sizing: border-box;
+  cursor: move;
 }
 
 .redact-rect--black {
@@ -58,31 +75,122 @@
   border-style: dashed;
 }
 
-.redact-rect--draft {
-  background: rgb(25 118 210 / 30%);
-  border-style: dashed;
-}
-
-.redact-rect--inherited {
+/* このページだけではなく、全ページ・奇数などに当たる範囲 */
+.redact-rect--scoped {
   border-color: var(--md-tertiary);
   border-style: dotted;
 }
 
+.redact-rect--selected {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 1px;
+}
+
+.redact-rect--draft {
+  background: rgb(25 118 210 / 30%);
+  border-style: dashed;
+  cursor: crosshair;
+}
+
+/* つまみより手前に置く。重なったときに削除ボタンを押せなくなるのを防ぐ。 */
 .redact-rect__remove {
   position: absolute;
-  top: -10px;
-  right: -10px;
+  z-index: 3;
+  top: -14px;
+  right: -14px;
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  border: none;
+  border: 2px solid var(--md-surface);
   border-radius: var(--shape-full);
   background: var(--md-error);
   color: var(--md-on-error);
   cursor: pointer;
   line-height: 0;
+}
+
+/*
+ * サイズ変更のつまみ。
+ * 指で掴めるよう、見た目より広い当たり判定 (::before) を持たせている。
+ */
+.redact-handle {
+  position: absolute;
+  z-index: 2;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 2px solid var(--md-primary);
+  border-radius: 3px;
+  background: var(--md-surface-container-lowest);
+  touch-action: none;
+  cursor: pointer;
+}
+
+/* 指で掴めるように当たり判定を広げる。広げすぎると削除ボタンと取り合いになる。 */
+.redact-handle::before {
+  content: '';
+  position: absolute;
+  inset: -9px;
+}
+
+.redact-handle--nw {
+  left: -7px;
+  top: -7px;
+  cursor: nwse-resize;
+}
+.redact-handle--n {
+  left: 50%;
+  top: -7px;
+  margin-left: -7px;
+  cursor: ns-resize;
+}
+.redact-handle--ne {
+  right: -7px;
+  top: -7px;
+  cursor: nesw-resize;
+}
+.redact-handle--e {
+  right: -7px;
+  top: 50%;
+  margin-top: -7px;
+  cursor: ew-resize;
+}
+.redact-handle--se {
+  right: -7px;
+  bottom: -7px;
+  cursor: nwse-resize;
+}
+.redact-handle--s {
+  left: 50%;
+  bottom: -7px;
+  margin-left: -7px;
+  cursor: ns-resize;
+}
+.redact-handle--sw {
+  left: -7px;
+  bottom: -7px;
+  cursor: nesw-resize;
+}
+.redact-handle--w {
+  left: -7px;
+  top: 50%;
+  margin-top: -7px;
+  cursor: ew-resize;
+}
+
+.redact-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.redact-zoom__value {
+  min-width: 48px;
+  text-align: center;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .redact-pager {
@@ -115,6 +223,24 @@
   border-radius: var(--shape-sm);
   background: var(--md-surface-container-low);
   font-size: 0.8125rem;
+}
+
+.rect-list__item--selected {
+  border-color: var(--md-primary);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+.rect-list__label {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .rect-list__swatch {

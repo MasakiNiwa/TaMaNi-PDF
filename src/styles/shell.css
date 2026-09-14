@@ -64,7 +64,8 @@
   gap: 4px;
 }
 
-@media (max-width: 380px) {
+/* 狭い画面ではタグラインを隠し、その分を画面ごとの操作ボタンに使う */
+@media (max-width: 599px) {
   .app-bar__tagline {
     display: none;
   }

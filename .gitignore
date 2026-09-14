@@ -4,3 +4,6 @@ dist/
 *.local
 .vite/
 public/pdfjs/
+
+# TypeScript のビルド情報 (生成物)
+*.tsbuildinfo

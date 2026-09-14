@@ -124,9 +124,10 @@ const loadIntoRedact = async (page) => {
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.58, box.y + box.height * 0.225, { steps: 10 });
   await page.mouse.up();
-  await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.203);
+  // 2本目は1本目と重ならない位置から引く (既存の範囲の上から引くと移動操作になる)
+  await page.mouse.move(box.x + box.width * 0.08, box.y + box.height * 0.26);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width * 0.52, box.y + box.height * 0.248, { steps: 10 });
+  await page.mouse.move(box.x + box.width * 0.52, box.y + box.height * 0.305, { steps: 10 });
   await page.mouse.up();
 };
 
