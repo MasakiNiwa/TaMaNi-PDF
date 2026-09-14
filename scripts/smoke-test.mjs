@@ -57,15 +57,33 @@ function startServer() {
   return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok(server)));
 }
 
-/** テスト用のPDFを作る。各ページに検出しやすい固有の文字列を入れる。 */
-async function makeSamplePdf(pageCount = 3) {
+/**
+ * テスト用のPDFを作る。各ページに検出しやすい固有の文字列を入れる。
+ *
+ * shift を渡すと、同じ書式のまま中身だけがずれたPDFになる
+ * (自動位置合わせの検証用)。
+ */
+async function makeSamplePdf(pageCount = 3, shift = { x: 0, y: 0 }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (let i = 0; i < pageCount; i += 1) {
     const page = doc.addPage([595.28, 841.89]);
-    page.drawText(`PAGE-NUMBER-${i + 1}`, { x: 60, y: 760, size: 24, font, color: rgb(0, 0, 0) });
-    page.drawText('SECRET-TOP-LEFT', { x: 60, y: 700, size: 20, font, color: rgb(0.8, 0, 0) });
-    page.drawText('KEEP-THIS-TEXT', { x: 60, y: 300, size: 20, font, color: rgb(0, 0, 0.8) });
+    const at = (x, y) => ({ x: x + shift.x, y: y + shift.y });
+    page.drawText(`PAGE-NUMBER-${i + 1}`, { ...at(60, 760), size: 24, font, color: rgb(0, 0, 0) });
+    page.drawText('SECRET-TOP-LEFT', { ...at(60, 700), size: 20, font, color: rgb(0.8, 0, 0) });
+    page.drawText('KEEP-THIS-TEXT', { ...at(60, 300), size: 20, font, color: rgb(0, 0, 0.8) });
+    // 位置合わせの手がかりになるよう、書式らしい罫線と見出しも入れる
+    page.drawRectangle({ ...at(55, 520), width: 480, height: 3, color: rgb(0.2, 0.2, 0.2) });
+    page.drawRectangle({ ...at(55, 200), width: 480, height: 3, color: rgb(0.2, 0.2, 0.2) });
+    for (let row = 0; row < 6; row += 1) {
+      page.drawText(`Item ${row + 1}`, { ...at(70, 480 - row * 28), size: 12, font, color: rgb(0.2, 0.2, 0.2) });
+      page.drawText(`${(row + 1) * 1200} JPY`, {
+        ...at(300, 480 - row * 28),
+        size: 12,
+        font,
+        color: rgb(0.2, 0.2, 0.2),
+      });
+    }
   }
   return Buffer.from(await doc.save());
 }
@@ -527,6 +545,137 @@ await page.waitForTimeout(300);
 await page.getByRole('button', { name: /まとめてZIPで保存/ }).click();
 await page.waitForTimeout(2000);
 check('ZIPが書き出される', downloads.some((d) => d.name.endsWith('.zip')), JSON.stringify(downloads.map((d) => d.name)));
+
+console.log('\n[4b] テンプレートの自動位置合わせ');
+{
+  // 同じ書式のまま中身だけ右下にずれたPDFを用意し、
+  // テンプレートの範囲がその分だけ動いて当たるかを見る。
+  const shiftX = 24;
+  const shiftY = -36;
+  const shifted = await makeSamplePdf(3, { x: shiftX, y: shiftY });
+
+  // 出力PDFを開いて、黒い帯が縦のどのあたりに出るかを測る
+  const blackBandTop = async (buffer, name) => {
+    await page.goto(base + '#/redact');
+    await page.locator('.dropzone').waitFor({ timeout: 20_000 });
+    await page.locator('input[type=file]').first().setInputFiles({
+      name,
+      mimeType: 'application/pdf',
+      buffer,
+    });
+    await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(2500);
+    return page.evaluate(() => {
+      const canvas = document.querySelector('.redact-stage__canvas');
+      const ctx = canvas.getContext('2d');
+      const x = Math.round(canvas.width * 0.3);
+      const column = ctx.getImageData(x, 0, 1, canvas.height).data;
+      for (let y = 0; y < canvas.height; y += 1) {
+        const at = y * 4;
+        if (column[at] < 40 && column[at + 1] < 40 && column[at + 2] < 40) return y / canvas.height;
+      }
+      return -1;
+    });
+  };
+
+  // 同じURL (#/batch) への goto はページを読み直さないことがあり、
+  // 前のファイル一覧が残ったまま次の検証をしてしまう。明示的に読み直す。
+  const openBatch = async () => {
+    await page.goto(base + '#/batch');
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('.dropzone').waitFor({ timeout: 20_000 });
+  };
+
+  const runBatch = async (files) => {
+    await openBatch();
+    await page.getByLabel('適用するテンプレート').selectOption({ index: 1 });
+    await page.locator('input[type=file]').first().setInputFiles(files);
+    downloads.length = 0;
+    await page.getByRole('button', { name: '一括で墨消しする' }).click();
+    await page.locator('.batch-item--done').nth(files.length - 1).waitFor({ timeout: 60_000 });
+  };
+
+  // まずはずれていないPDF。ここが基準の位置になる。
+  await runBatch([{ name: 'align-base.pdf', mimeType: 'application/pdf', buffer: samplePdf }]);
+  const baseStatus = await page.locator('.batch-item__status').first().innerText();
+  check('位置合わせの結果が一覧に出る', baseStatus.includes('補正') || baseStatus.includes('ずれなし'), baseStatus);
+  await page.locator('.batch-item').first().getByRole('button', { name: /を保存/ }).click();
+  await page.waitForTimeout(2500);
+  const baseOut = downloads.find((d) => d.name.endsWith('.pdf'));
+
+  // 次に中身がずれたPDF
+  await runBatch([{ name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted }]);
+  const shiftedStatus = await page.locator('.batch-item__status').first().innerText();
+  check('ずれたPDFでは補正が働く', shiftedStatus.includes('補正'), shiftedStatus);
+  await page.locator('.batch-item').first().getByRole('button', { name: /を保存/ }).click();
+  await page.waitForTimeout(2500);
+  const shiftedOut = downloads.find((d) => d.name.endsWith('.pdf'));
+
+  if (baseOut && shiftedOut) {
+    const baseTop = await blackBandTop(baseOut.body, 'align-base-out.pdf');
+    const shiftedTop = await blackBandTop(shiftedOut.body, 'align-shifted-out.pdf');
+    // PDFの y は上向き、画面の y は下向きなので、下へ36ポイント動いたぶんを割合にする
+    const expected = -shiftY / 841.89;
+    const actual = shiftedTop - baseTop;
+    check(
+      '塗った位置が中身のずれに追従する',
+      baseTop > 0 && shiftedTop > 0 && Math.abs(actual - expected) < 0.015,
+      `期待 ${expected.toFixed(3)} / 実際 ${actual.toFixed(3)}`,
+    );
+  } else {
+    check('塗った位置が中身のずれに追従する', false, '出力PDFを取得できませんでした');
+  }
+
+  // プレビューにも同じ補正がかかり、一致度が表示されること
+  await openBatch();
+  await page.getByLabel('適用するテンプレート').selectOption({ index: 1 });
+  await page.locator('input[type=file]').first().setInputFiles([
+    { name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted },
+  ]);
+  await page.getByRole('button', { name: '1件目でプレビュー' }).click();
+  await page.locator('.preview-stage__canvas').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(2500);
+  const previewText = await page.locator('.dialog').innerText();
+  check('プレビューに一致度が出る', /一致度\s*\d+%/.test(previewText), previewText.slice(-120));
+  const alignedTop = await page.locator('.preview-rect').first().evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const stage = element.parentElement.getBoundingClientRect();
+    return (box.top - stage.top) / stage.height;
+  });
+  await page.locator('.dialog').getByRole('button', { name: '閉じる' }).click();
+  await page.waitForTimeout(300);
+
+  // 設定で切ると補正しなくなること
+  await page.goto(base + '#/settings');
+  await page.getByLabel('自動位置合わせ').selectOption('off');
+  await page.waitForTimeout(300);
+  await openBatch();
+  await page.getByLabel('適用するテンプレート').selectOption({ index: 1 });
+  await page.locator('input[type=file]').first().setInputFiles([
+    { name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted },
+  ]);
+  await page.getByRole('button', { name: '1件目でプレビュー' }).click();
+  await page.locator('.preview-stage__canvas').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(2500);
+  const offText = await page.locator('.dialog').innerText();
+  check('設定で切ると自動位置合わせを行わない', offText.includes('自動位置合わせなし'), offText.slice(-120));
+  const rawTop = await page.locator('.preview-rect').first().evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    const stage = element.parentElement.getBoundingClientRect();
+    return (box.top - stage.top) / stage.height;
+  });
+  check(
+    '切ったときは範囲が動かない',
+    alignedTop - rawTop > 0.02,
+    `補正あり ${alignedTop.toFixed(3)} / 補正なし ${rawTop.toFixed(3)}`,
+  );
+  await page.locator('.dialog').getByRole('button', { name: '閉じる' }).click();
+
+  // 後片付け: 設定を元に戻す
+  await page.goto(base + '#/settings');
+  await page.getByLabel('自動位置合わせ').selectOption('on');
+  await page.waitForTimeout(300);
+}
 
 console.log('\n[5] スマホのタッチ操作');
 {

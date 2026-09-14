@@ -186,6 +186,21 @@ export function SettingsPage() {
       <section className="section">
         <h2 className="section__title">墨消しテンプレート ({templates.templates.length})</h2>
         <div className="card card--outlined">
+          <SettingRow
+            title="自動位置合わせ"
+            description="同じ書式でも位置がずれているPDFに、範囲を合わせてから当てます。使うときは、テンプレート保存時にそのページを96px幅まで縮めた白黒画像 (文字は読めません) も端末内に保存します。"
+          >
+            <select
+              className="select"
+              value={settings.templateAutoAlign ? 'on' : 'off'}
+              onChange={(event) => update({ templateAutoAlign: event.target.value === 'on' })}
+              aria-label="自動位置合わせ"
+            >
+              <option value="on">使う (推奨)</option>
+              <option value="off">使わない</option>
+            </select>
+          </SettingRow>
+
           {templates.templates.length === 0 ? (
             <p className="text-small muted">まだテンプレートがありません。墨消し画面で範囲を指定して保存できます。</p>
           ) : (
@@ -196,6 +211,7 @@ export function SettingsPage() {
                     <div className="template-item__name">{template.name}</div>
                     <div className="template-item__meta">
                       {template.rects.length}個の範囲 ・ 更新 {formatDateTime(template.updatedAt)}
+                      {template.anchor ? ' ・ 自動位置合わせあり' : ''}
                     </div>
                   </div>
                   <IconButton
@@ -242,7 +258,8 @@ export function SettingsPage() {
             />
           </div>
           <p className="text-small muted" style={{ marginTop: 8, marginBottom: 0 }}>
-            書き出したJSONには範囲の座標だけが入ります。PDFの中身は含まれません。
+            書き出したJSONに入るのは、範囲の座標と、自動位置合わせ用の縮小画像 (96px幅の白黒。文字は読めません) だけです。
+            PDFそのものは含まれません。
           </p>
         </div>
       </section>

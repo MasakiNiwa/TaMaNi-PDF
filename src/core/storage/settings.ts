@@ -16,6 +16,13 @@ export interface Settings {
   organizeSuffix: string;
   /** 墨消しの出力ファイル名につける接尾辞 */
   redactSuffix: string;
+  /**
+   * テンプレートの自動位置合わせを使うか。
+   *
+   * 有効にすると、テンプレート保存時にそのページの縮小画像 (96px幅・白黒) を
+   * 端末内に保存し、適用時のずれの推定に使う。無効なら画像を持たない。
+   */
+  templateAutoAlign: boolean;
 }
 
 export const DPI_CHOICES = [96, 150, 200, 300] as const;
@@ -29,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   thumbnailSize: 'medium',
   organizeSuffix: '_edited',
   redactSuffix: '_redacted',
+  templateAutoAlign: true,
 };
 
 const KEY = 'settings';
@@ -54,6 +62,8 @@ function coerce(raw: unknown): Settings {
       : DEFAULT_SETTINGS.thumbnailSize,
     organizeSuffix: typeof value.organizeSuffix === 'string' ? value.organizeSuffix : DEFAULT_SETTINGS.organizeSuffix,
     redactSuffix: typeof value.redactSuffix === 'string' ? value.redactSuffix : DEFAULT_SETTINGS.redactSuffix,
+    templateAutoAlign:
+      typeof value.templateAutoAlign === 'boolean' ? value.templateAutoAlign : DEFAULT_SETTINGS.templateAutoAlign,
   };
 }
 
