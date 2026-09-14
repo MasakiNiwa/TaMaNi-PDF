@@ -176,9 +176,12 @@ export function OrganizePage() {
           <Icon name="pages" size={24} />
           ページ整理
         </h1>
-        <p className="page__lead">
-          ページの並べ替え・回転・追加・削除をして、1つのPDFとして書き出します。文字は文字のまま残ります。
-        </p>
+        {/* 読み込んだあとは前置きを畳む。一覧までの距離を短くするため。 */}
+        {!hasPages ? (
+          <p className="page__lead">
+            ページの並べ替え・回転・追加・削除をして、1つのPDFとして書き出します。文字は文字のまま残ります。
+          </p>
+        ) : null}
       </header>
 
       <div className="stack" style={{ marginBottom: 20 }}>
@@ -200,16 +203,7 @@ export function OrganizePage() {
 
       {!hasPages ? (
         <EmptyState icon="pages" title="まだページがありません">
-          <p>
-            PDFや画像を読み込むとページの一覧が表示されます。
-            <br />
-            何もないところから作り始めることもできます。
-          </p>
-          <div className="row" style={{ justifyContent: 'center', marginTop: 12 }}>
-            <Button variant="tonal" icon="note_add" onClick={addBlankPage} disabled={busy}>
-              空白ページから始める
-            </Button>
-          </div>
+          PDFや画像を読み込むとページの一覧が表示されます。
         </EmptyState>
       ) : (
         <>
@@ -256,6 +250,11 @@ export function OrganizePage() {
               </Button>
             )}
 
+            {/* 書き出しは上に置く。ページ数が多いと、下まで送るのが手間になるため。 */}
+            <span className="spacer" />
+            <Button small variant="filled" icon="download" onClick={exportPdf} disabled={busy}>
+              PDFを書き出す
+            </Button>
           </div>
 
           <p className="text-small muted" style={{ marginBottom: 12 }}>
@@ -302,15 +301,6 @@ export function OrganizePage() {
             </SortableContext>
           </DndContext>
 
-          <div className="row" style={{ marginTop: 20 }}>
-            <Button variant="outlined" icon="delete" onClick={() => setConfirmClear(true)}>
-              クリア
-            </Button>
-            <span className="spacer" />
-            <Button variant="filled" icon="download" onClick={exportPdf} disabled={busy}>
-              PDFを書き出す
-            </Button>
-          </div>
         </>
       )}
 

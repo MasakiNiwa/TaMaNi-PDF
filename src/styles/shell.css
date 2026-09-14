@@ -121,6 +121,9 @@
   padding: 12px 8px;
   border-right: 1px solid var(--md-outline-variant);
   background: var(--md-surface);
+  /* 画面が低いときに項目が縦にあふれてもページ全体を伸ばさない */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .nav-rail__list {
@@ -205,6 +208,33 @@
 
   .app__main {
     padding-bottom: 64px;
+  }
+}
+
+/*
+ * 横向きのスマホなど、幅はあるが高さが足りない画面。
+ * 6項目ぶんの文字を出すとレールだけで画面の高さを超えてしまうので、
+ * アイコンだけの省スペース表示にする。
+ */
+@media (min-width: 840px) and (max-height: 560px) {
+  :root {
+    --nav-rail-width: 60px;
+  }
+
+  .nav-rail {
+    padding: 6px 4px;
+  }
+
+  .nav-item {
+    padding: 3px 2px;
+    gap: 0;
+    /* ラベルは読み上げには残したまま、見た目だけ畳む */
+    font-size: 0;
+  }
+
+  .nav-item__indicator {
+    width: 44px;
+    height: 30px;
   }
 }
 

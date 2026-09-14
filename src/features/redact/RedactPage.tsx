@@ -273,12 +273,15 @@ export function RedactPage() {
         </AppBarSlot>
       ) : null}
 
-      <header className="page__header">
+      {/*
+        読み込んだあとは見出しを畳む。
+        広い画面では作業面が画面の高さいっぱいを使うため、見出しの分の余地がない。
+      */}
+      <header className={`page__header${pdf ? ' page__header--compact' : ''}`}>
         <h1 className="page__title">
           <Icon name="draw" size={24} />
           墨消し
         </h1>
-        {/* 読み込んだあとは前置きを畳む。PDFに辿り着くまでのスクロールを短くするため。 */}
         {!pdf ? (
           <p className="page__lead">
             隠したい部分をドラッグで囲みます。全ページを画像に変換してから塗りつぶすので、下に隠れた文字も残りません。
@@ -286,30 +289,28 @@ export function RedactPage() {
         ) : null}
       </header>
 
-      <div className="stack" style={{ marginBottom: pdf ? 12 : 20 }}>
-        <FileDrop
-          accept="application/pdf"
-          icon={pdf ? 'refresh' : 'upload'}
-          compact={Boolean(pdf)}
-          title={pdf ? '別のPDFに切り替える' : 'PDFをドラッグ&ドロップ、またはタップして選択'}
-          hint={pdf ? `現在: ${pdf.name}` : '1つのPDFを読み込んで墨消しします。'}
-          onFiles={loadFile}
-        />
-        {!pdf ? (
+      {!pdf ? (
+        <div className="stack" style={{ marginBottom: 20 }}>
+          <FileDrop
+            accept="application/pdf"
+            icon="upload"
+            title="PDFをドラッグ&ドロップ、またはタップして選択"
+            hint="1つのPDFを読み込んで墨消しします。"
+            onFiles={loadFile}
+          />
           <Banner tone="warning">
             出力されるPDFは<strong>画像として作り直した</strong>ものになります。文字検索・テキスト選択・しおり・注釈は失われます。
           </Banner>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {!pdf ? (
         <EmptyState icon="draw" title="PDFを読み込んでください">
           読み込んだPDFはこの端末の中だけで処理されます。
         </EmptyState>
       ) : (
-        <div className="redact-layout">
-          <div>
-            <div className="toolbar">
+        <div className="redact-workspace">
+          <div className="toolbar redact-workspace__tools">
               <Segmented
                 ariaLabel="墨消しの色"
                 value={color}
@@ -403,43 +404,11 @@ export function RedactPage() {
               >
                 テンプレート
               </Button>
-            </div>
 
-            <div ref={stageRef}>
-              <RedactStage
-                proxy={pdf.proxy}
-                pageIndex={pageIndex}
-                rects={visibleRects}
-                drawColor={color}
-                view={view}
-                onViewChange={setView}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
-                onAddRect={addRect}
-                onUpdateRect={updateRect}
-                onCommitRect={history.commitCurrent}
-                onRemoveRect={removeRect}
-              />
-            </div>
-
-            <p className="text-small muted" style={{ marginTop: 10 }}>
-              ドラッグで範囲を追加。範囲をタップすると、動かしたり右下のつまみで大きさを変えたりできます。
-              2本指でつまむと拡大・縮小、そのまま2本指を動かすと表示位置を移動できます。
-            </p>
-
-            <div style={{ marginTop: 12 }}>
-              <Banner tone="warning">
-                出力されるPDFは<strong>画像として作り直した</strong>ものになります。
-                文字検索・テキスト選択・しおり・注釈は失われます。
-              </Banner>
-            </div>
-
-            <div className="row" style={{ marginTop: 12 }}>
-              <Button variant="outlined" icon="delete" onClick={() => setConfirmClear(true)}>
-                クリア
-              </Button>
+              {/* 書き出しは上に置く。PDFの下までたどらずに押せるようにするため。 */}
               <span className="spacer" />
               <Button
+                small
                 variant="filled"
                 icon="download"
                 onClick={runRedaction}
@@ -448,9 +417,44 @@ export function RedactPage() {
                 墨消しして書き出す
               </Button>
             </div>
+
+          <div className="redact-workspace__stage" ref={stageRef}>
+            <RedactStage
+              proxy={pdf.proxy}
+              pageIndex={pageIndex}
+              rects={visibleRects}
+              drawColor={color}
+              view={view}
+              onViewChange={setView}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+              onAddRect={addRect}
+              onUpdateRect={updateRect}
+              onCommitRect={history.commitCurrent}
+              onRemoveRect={removeRect}
+            />
           </div>
 
-          <aside className="stack">
+          <aside className="redact-workspace__side stack">
+            <FileDrop
+              accept="application/pdf"
+              icon="refresh"
+              compact
+              title="別のPDFに切り替える"
+              hint={`現在: ${pdf.name}`}
+              onFiles={loadFile}
+            />
+
+            <p className="text-small muted" style={{ marginBottom: 0 }}>
+              ドラッグで範囲を追加。範囲をタップすると、動かしたり右下のつまみで大きさを変えたりできます。
+              2本指でつまむと拡大・縮小、そのまま2本指を動かすと表示位置を移動できます。
+            </p>
+
+            <Banner tone="warning">
+              出力されるPDFは<strong>画像として作り直した</strong>ものになります。
+              文字検索・テキスト選択・しおり・注釈は失われます。
+            </Banner>
+
             <div className="card card--outlined">
               <h3 style={{ marginBottom: 8 }}>指定した範囲 ({rects.length})</h3>
               {rects.length === 0 ? (

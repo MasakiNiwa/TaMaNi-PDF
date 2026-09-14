@@ -1,13 +1,81 @@
-.redact-layout {
+/*
+ * 墨消しの作業レイアウト。
+ *
+ * 狭い画面では上から順に積み、広い画面 (横向きのスマホを含む) では
+ * PDFを高さいっぱいに使い、余った横幅にパネルを置く。
+ * 横長のときにPDFだけが小さくなってしまうのを避けるのが狙い。
+ */
+/*
+ * 墨消しの作業レイアウト。
+ *
+ * 狭い画面では「操作 → PDF → 情報」と上から積む。
+ * 広い画面 (横向きのスマホを含む) では左をPDF専用にして高さいっぱいに使い、
+ * 操作と情報を右の列にまとめる。横長のときPDFだけが小さくなるのを避けるため。
+ */
+.redact-workspace {
   display: grid;
-  gap: 16px;
-  grid-template-columns: 1fr;
-  align-items: start;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'tools'
+    'stage'
+    'side';
 }
 
-@media (min-width: 1024px) {
-  .redact-layout {
-    grid-template-columns: minmax(0, 1fr) 320px;
+.redact-workspace__tools {
+  grid-area: tools;
+}
+
+.redact-workspace__stage {
+  grid-area: stage;
+  min-width: 0;
+}
+
+.redact-workspace__side {
+  grid-area: side;
+}
+
+@media (min-width: 760px) {
+  .redact-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      'stage tools'
+      'stage side';
+    /* 画面の高さいっぱいを使う。ページ全体はスクロールさせない。 */
+    height: calc(100svh - var(--app-bar-height) - 48px);
+    min-height: 240px;
+    align-items: stretch;
+  }
+
+  /* 作業中は見出しを出さない (縦の余地を作業面に回す) */
+  .page__header--compact {
+    display: none;
+  }
+
+  .redact-workspace__stage {
+    min-height: 0;
+  }
+
+  .redact-workspace__side {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* 高さの決まった作業面では、ツールバーを貼り付ける必要がない */
+  .redact-workspace__tools {
+    position: static;
+    margin-bottom: 0;
+  }
+
+  /* 作業面があるときは、画面をアプリのように使い切る */
+  .app__main:has(.redact-workspace) {
+    padding-bottom: 16px;
+  }
+
+  .app__main:has(.redact-workspace) .app-footer {
+    display: none;
   }
 }
 
@@ -27,7 +95,7 @@
   overflow: hidden;
   width: 100%;
   /*
-   * 形はCSSに任せる。JSで高さを測って決めると、その高さでページの
+   * 形はCSSに任せる。JSで高さを決めると、その高さでページの
    * スクロールバーの有無が変わり、幅が変わってまた高さが変わる往復が起きる。
    * --page-ratio は「幅 ÷ 高さ」で、ステージ側から渡される。
    */
@@ -46,9 +114,20 @@
   touch-action: none;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 760px) {
+  /* 高さが決まっている作業面では、高さを基準に幅を決める */
+  .redact-stage-wrap {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    padding: 8px;
+  }
+
   .redact-viewport {
-    max-width: calc(72svh * var(--page-ratio, 0.707));
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
   }
 }
 
