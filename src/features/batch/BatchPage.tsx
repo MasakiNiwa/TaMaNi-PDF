@@ -4,7 +4,10 @@ import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
 import { useTemplates } from '../../app/TemplatesContext';
 import { hrefFor } from '../../app/routes';
+import { alignRect, alignSummary } from '../../core/pdf/align';
+import { closePdf, openWithPdfjs } from '../../core/pdf/pdfjs';
 import { redactToPdf } from '../../core/pdf/redact';
+import { estimateTemplateAlignment } from '../../core/pdf/templateAlign';
 import { rectsForPage } from '../../core/storage/templates';
 import { saveBytes } from '../../core/util/download';
 import { baseName, formatBytes, sanitizeFileName } from '../../core/util/format';
@@ -25,6 +28,8 @@ interface Job {
   file: File;
   status: JobStatus;
   message?: string;
+  /** 自動位置合わせの結果 (画面に出す短い説明) */
+  align?: string;
   outputName?: string;
   output?: Uint8Array;
 }
@@ -74,11 +79,18 @@ export function BatchPage() {
       if (job.status === 'done') continue;
       patchJob(job.id, { status: 'running', message: undefined });
       setPageProgress(null);
+      let proxy;
       try {
         const bytes = new Uint8Array(await job.file.arrayBuffer());
+        proxy = await openWithPdfjs(bytes);
+        // ファイルごとにずれを測る。同じ発行元でも回によって位置が動くことがあるため。
+        const alignment = await estimateTemplateAlignment(template, proxy, settings.templateAutoAlign);
+        patchJob(job.id, { align: alignSummary(alignment) });
         const output = await redactToPdf({
           bytes,
-          rectsForPage: (pageIndex, pageCount) => rectsForPage(template, pageIndex, pageCount),
+          proxy,
+          rectsForPage: (pageIndex, pageCount) =>
+            rectsForPage(template, pageIndex, pageCount).map((rect) => alignRect(rect, alignment)),
           options: {
             dpi: settings.redactDpi,
             format: settings.redactFormat,
@@ -102,6 +114,8 @@ export function BatchPage() {
           status: 'error',
           message: error instanceof Error ? error.message : '処理に失敗しました',
         });
+      } finally {
+        await closePdf(proxy);
       }
     }
 
@@ -187,6 +201,12 @@ export function BatchPage() {
                 <span className="field__hint">
                   {template.rects.length}個の範囲を適用します
                   {template.sourcePageCount ? ` (作成時のページ数: ${template.sourcePageCount})` : ''}
+                  <br />
+                  {template.anchor && settings.templateAutoAlign
+                    ? '自動位置合わせ: 有効 — ファイルごとにずれを測って範囲を合わせます'
+                    : template.anchor
+                      ? '自動位置合わせ: 設定で無効になっています'
+                      : '自動位置合わせ: このテンプレートには基準画像がありません (保存し直すと付きます)'}
                 </span>
               ) : null}
             </div>
@@ -223,7 +243,7 @@ export function BatchPage() {
                       {job.status === 'running'
                         ? '処理中…'
                         : job.status === 'done'
-                          ? `完了 ${job.message ?? ''}`
+                          ? `完了 ${job.message ?? ''}${job.align ? ` ・ ${job.align}` : ''}`
                           : job.status === 'error'
                             ? (job.message ?? '失敗')
                             : (job.message ?? '待機中')}
@@ -335,13 +355,20 @@ export function BatchPage() {
         onClose={() => setPreviewJobId(null)}
         actions={<Button onClick={() => setPreviewJobId(null)}>閉じる</Button>}
       >
-        {previewJob && template ? <TemplatePreview file={previewJob.file} template={template} /> : null}
+        {previewJob && template ? (
+          <TemplatePreview
+            file={previewJob.file}
+            template={template}
+            autoAlign={settings.templateAutoAlign}
+          />
+        ) : null}
       </Dialog>
 
       <div style={{ marginTop: 16 }}>
         <Banner tone="warning">
-          テンプレートは座標で範囲を指定しています。書式がずれているPDFでは隠したい部分からずれることがあるので、
-          出力されたPDFを必ず目で確認してください。
+          自動位置合わせはPDFどうしの見た目を比べて、ずれを推定する仕組みです。
+          書式が違うPDFや、似た配置が見つからないPDFでは補正されません。
+          出力されたPDFは必ず目で確認してください。
         </Banner>
       </div>
     </div>

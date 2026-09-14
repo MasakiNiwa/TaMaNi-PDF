@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { alignRect, alignSummary, NO_ALIGNMENT, type AlignResult } from '../../core/pdf/align';
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from '../../core/pdf/pdfjs';
 import { REDACT_FILL } from '../../core/pdf/redact';
 import { getPageSize, renderPageToCanvas } from '../../core/pdf/render';
+import { estimateTemplateAlignment } from '../../core/pdf/templateAlign';
 import { rectsForPage, type RedactTemplate } from '../../core/storage/templates';
 import { IconButton } from '../../ui/Button';
 import { ProgressBar } from '../../ui/primitives';
@@ -11,6 +13,8 @@ const RENDER_WIDTH = 1200;
 export interface TemplatePreviewProps {
   file: File;
   template: RedactTemplate;
+  /** 自動位置合わせを使うか (設定と同じ値を渡す) */
+  autoAlign: boolean;
 }
 
 /**
@@ -20,7 +24,7 @@ export interface TemplatePreviewProps {
  * 書式がずれているPDFに気づかないまま一括で処理してしまう事故を防ぐのが目的なので、
  * 「どこが隠れるか」が分かれば足りる。
  */
-export function TemplatePreview({ file, template }: TemplatePreviewProps) {
+export function TemplatePreview({ file, template, autoAlign }: TemplatePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const proxyRef = useRef<PDFDocumentProxy | null>(null);
 
@@ -29,6 +33,8 @@ export function TemplatePreview({ file, template }: TemplatePreviewProps) {
   const [ratio, setRatio] = useState(595.28 / 841.89);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = useState('');
+  // 実際の一括処理と同じ補正をかけて見せる。見たものと出るものを一致させるため。
+  const [alignment, setAlignment] = useState<AlignResult>(NO_ALIGNMENT);
 
   useEffect(() => {
     let alive = true;
@@ -44,6 +50,9 @@ export function TemplatePreview({ file, template }: TemplatePreviewProps) {
         proxyRef.current = proxy;
         setPageCount(proxy.numPages);
         setPageIndex(0);
+        const result = await estimateTemplateAlignment(template, proxy, autoAlign).catch(() => NO_ALIGNMENT);
+        if (!alive) return;
+        setAlignment(result);
         setState('ready');
       } catch (error) {
         if (!alive) return;
@@ -56,7 +65,7 @@ export function TemplatePreview({ file, template }: TemplatePreviewProps) {
       void closePdf(proxyRef.current);
       proxyRef.current = null;
     };
-  }, [file]);
+  }, [file, template, autoAlign]);
 
   useEffect(() => {
     const proxy = proxyRef.current;
@@ -105,7 +114,7 @@ export function TemplatePreview({ file, template }: TemplatePreviewProps) {
     return <p className="text-small">{message}</p>;
   }
 
-  const applied = rectsForPage(template, pageIndex, pageCount);
+  const applied = rectsForPage(template, pageIndex, pageCount).map((rect) => alignRect(rect, alignment));
 
   return (
     <div className="stack">
@@ -154,6 +163,9 @@ export function TemplatePreview({ file, template }: TemplatePreviewProps) {
       <p className="text-small muted" style={{ marginBottom: 0 }}>
         このページに当たる範囲: {applied.length}個
         {applied.length === 0 ? ' (このページには何も当たりません)' : ''}
+        <br />
+        自動位置合わせ: {alignSummary(alignment)}
+        {alignment.reason === 'ok' ? ` ・ 一致度 ${Math.round(alignment.score * 100)}%` : ''}
       </p>
     </div>
   );

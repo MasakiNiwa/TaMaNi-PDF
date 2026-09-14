@@ -1,3 +1,4 @@
+import type { StoredFingerprint } from '../pdf/align';
 import type { NormalizedRect, RedactColor } from '../pdf/redact';
 import { createId } from '../util/id';
 import { readJson, writeJson } from './store';
@@ -22,6 +23,18 @@ export interface TemplateRect extends NormalizedRect {
   scope: PageScope;
 }
 
+/**
+ * 自動位置合わせの基準。
+ *
+ * テンプレートを作ったときのページを 96px 幅まで縮めた白黒画像で、
+ * 文字は読み取れない粗さ。ずれの推定にだけ使う。
+ */
+export interface TemplateAnchor {
+  /** 基準にしたページ (0始まり) */
+  pageIndex: number;
+  fingerprint: StoredFingerprint;
+}
+
 export const TEMPLATE_VERSION = 1;
 
 export interface RedactTemplate {
@@ -33,6 +46,8 @@ export interface RedactTemplate {
   updatedAt: string;
   /** 作成時の元PDFのページ数 (適用前の目安表示に使う) */
   sourcePageCount?: number;
+  /** 自動位置合わせ用の基準画像 (設定で無効にしていれば持たない) */
+  anchor?: TemplateAnchor;
 }
 
 const KEY = 'templates';
@@ -80,6 +95,22 @@ export function rectsForPage(
   pageCount: number,
 ): NormalizedRect[] {
   return template.rects.filter((rect) => scopeMatches(rect.scope, pageIndex, pageCount));
+}
+
+function coerceAnchor(raw: unknown): TemplateAnchor | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const anchor = raw as { pageIndex?: unknown; fingerprint?: unknown };
+  const pageIndex = Number(anchor.pageIndex);
+  if (!Number.isInteger(pageIndex) || pageIndex < 0) return undefined;
+  if (typeof anchor.fingerprint !== 'object' || anchor.fingerprint === null) return undefined;
+  const print = anchor.fingerprint as Partial<StoredFingerprint>;
+  if (typeof print.data !== 'string') return undefined;
+  const width = Number(print.width);
+  const height = Number(print.height);
+  if (!Number.isInteger(width) || !Number.isInteger(height)) return undefined;
+  if (width < 8 || height < 8 || width * height > 400_000) return undefined;
+  // 中身が正しいbase64かどうかは、使う直前の decodeFingerprint で確かめる
+  return { pageIndex, fingerprint: { width, height, data: print.data } };
 }
 
 function isColor(value: unknown): value is RedactColor {
@@ -146,6 +177,7 @@ export function coerceTemplate(raw: unknown): RedactTemplate | null {
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : now,
     sourcePageCount:
       typeof value.sourcePageCount === 'number' && value.sourcePageCount > 0 ? value.sourcePageCount : undefined,
+    anchor: coerceAnchor(value.anchor),
   };
 }
 

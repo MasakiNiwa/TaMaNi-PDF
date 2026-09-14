@@ -4,6 +4,7 @@ import {
   saveTemplates,
   TEMPLATE_VERSION,
   type RedactTemplate,
+  type TemplateAnchor,
   type TemplateRect,
 } from '../core/storage/templates';
 import { createId } from '../core/util/id';
@@ -11,7 +12,12 @@ import { createId } from '../core/util/id';
 interface TemplatesApi {
   templates: RedactTemplate[];
   /** 名前と範囲から新しいテンプレートを保存する */
-  create: (name: string, rects: TemplateRect[], sourcePageCount?: number) => RedactTemplate;
+  create: (
+    name: string,
+    rects: TemplateRect[],
+    sourcePageCount?: number,
+    anchor?: TemplateAnchor,
+  ) => RedactTemplate;
   update: (id: string, patch: Partial<Pick<RedactTemplate, 'name' | 'rects'>>) => void;
   remove: (id: string) => void;
   /** 読み込んだテンプレートを追加する (同名でも別物として足す) */
@@ -30,7 +36,7 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const create = useCallback(
-    (name: string, rects: TemplateRect[], sourcePageCount?: number) => {
+    (name: string, rects: TemplateRect[], sourcePageCount?: number, anchor?: TemplateAnchor) => {
       const now = new Date().toISOString();
       const template: RedactTemplate = {
         id: createId('tpl'),
@@ -40,6 +46,7 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
         createdAt: now,
         updatedAt: now,
         sourcePageCount,
+        anchor,
       };
       persist([...templates, template]);
       return template;

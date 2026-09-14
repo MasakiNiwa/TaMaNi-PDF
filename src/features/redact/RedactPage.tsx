@@ -7,6 +7,8 @@ import { useTemplates } from '../../app/TemplatesContext';
 import { PdfUserError } from '../../core/pdf/errors';
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from '../../core/pdf/pdfjs';
 import { redactToPdf, type RedactColor } from '../../core/pdf/redact';
+import { alignRect, alignSummary } from '../../core/pdf/align';
+import { capturePageAnchor, estimateTemplateAlignment } from '../../core/pdf/templateAlign';
 import { scopeLabel, scopeMatches, type PageScope, type TemplateRect } from '../../core/storage/templates';
 import { saveBytes } from '../../core/util/download';
 import { baseName } from '../../core/util/format';
@@ -85,6 +87,7 @@ export function RedactPage() {
 
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
+  const [templateBusy, setTemplateBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => setColor(settings.defaultRedactColor), [settings.defaultRedactColor]);
@@ -225,25 +228,54 @@ export function RedactPage() {
     }
   }, [pdf, rects, settings, snackbar]);
 
-  const saveTemplate = useCallback(() => {
-    if (rects.length === 0) return;
-    templates.create(templateName, rects, pageCount);
-    setTemplateDialogOpen(false);
-    setTemplateName('');
-    snackbar.success('テンプレートを保存しました。');
-  }, [rects, templateName, templates, pageCount, snackbar]);
+  const saveTemplate = useCallback(async () => {
+    if (rects.length === 0 || !pdf) return;
+    setTemplateBusy(true);
+    try {
+      // 自動位置合わせ用に、今見ているページの縮小画像を一緒に保存する。
+      // 設定で切っているときは画像を持たず、座標だけのテンプレートになる。
+      const anchor = settings.templateAutoAlign
+        ? await capturePageAnchor(pdf.proxy, pageIndex).catch(() => undefined)
+        : undefined;
+      templates.create(templateName, rects, pageCount, anchor);
+      setTemplateDialogOpen(false);
+      setTemplateName('');
+      snackbar.success(
+        anchor ? 'テンプレートを保存しました (自動位置合わせ付き)。' : 'テンプレートを保存しました。',
+      );
+    } finally {
+      setTemplateBusy(false);
+    }
+  }, [rects, templateName, templates, pageCount, snackbar, pdf, pageIndex, settings.templateAutoAlign]);
 
   const applyTemplate = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const template = templates.templates.find((item) => item.id === id);
-      if (!template) return;
-      // id を振り直して、元のテンプレートと編集中の範囲を切り離す
-      history.commit(template.rects.map((rect) => ({ ...rect, id: createId('rect') })));
-      setSelectedId(null);
-      setTemplateDialogOpen(false);
-      snackbar.success(`テンプレート「${template.name}」を読み込みました。`);
+      if (!template || !pdf) return;
+      setTemplateBusy(true);
+      try {
+        // 書式が同じでも位置がずれていることがあるので、基準画像と見比べて合わせる
+        const alignment = await estimateTemplateAlignment(
+          template,
+          pdf.proxy,
+          settings.templateAutoAlign,
+        ).catch(() => null);
+        // id を振り直して、元のテンプレートと編集中の範囲を切り離す
+        history.commit(
+          template.rects.map((rect) => {
+            const moved = alignment ? alignRect(rect, alignment) : rect;
+            return { ...moved, id: createId('rect') };
+          }),
+        );
+        setSelectedId(null);
+        setTemplateDialogOpen(false);
+        const note = alignment?.applied ? ` (${alignSummary(alignment)})` : '';
+        snackbar.success(`テンプレート「${template.name}」を読み込みました。${note}`);
+      } finally {
+        setTemplateBusy(false);
+      }
     },
-    [templates.templates, snackbar, history],
+    [templates.templates, snackbar, history, pdf, settings.templateAutoAlign],
   );
 
   return (
@@ -529,10 +561,18 @@ export function RedactPage() {
           />
           <span className="field__hint">
             {rects.length}個の範囲を保存します。この端末のブラウザにだけ保存されます。
+            {settings.templateAutoAlign
+              ? ' 自動位置合わせのため、このページを96px幅まで縮めた白黒画像 (文字は読めません) も一緒に保存します。'
+              : ' 自動位置合わせは設定で切っているため、座標だけを保存します。'}
           </span>
         </div>
         <div className="row" style={{ marginTop: 10 }}>
-          <Button variant="tonal" icon="save" disabled={rects.length === 0} onClick={saveTemplate}>
+          <Button
+            variant="tonal"
+            icon="save"
+            disabled={rects.length === 0 || templateBusy}
+            onClick={() => void saveTemplate()}
+          >
             保存する
           </Button>
         </div>
@@ -552,9 +592,15 @@ export function RedactPage() {
                     <div className="template-item__meta">
                       {template.rects.length}個の範囲
                       {template.sourcePageCount ? ` ・ 作成時 ${template.sourcePageCount}ページ` : ''}
+                      {template.anchor ? ' ・ 自動位置合わせあり' : ''}
                     </div>
                   </div>
-                  <Button small variant="tonal" onClick={() => applyTemplate(template.id)}>
+                  <Button
+                    small
+                    variant="tonal"
+                    disabled={templateBusy}
+                    onClick={() => void applyTemplate(template.id)}
+                  >
                     読み込む
                   </Button>
                 </div>
