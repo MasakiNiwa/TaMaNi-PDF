@@ -116,3 +116,35 @@ export function SettingRow({
     </div>
   );
 }
+
+/**
+ * 見出しを押すと開け閉めできる枠。
+ *
+ * 説明が長いと、画面を開いた瞬間の圧が強い。必要な人だけが開けるようにして、
+ * 普段は見出しだけが並んでいる状態にする。
+ * details/summary を使っているので、閉じていても端末の検索やスクリーンリーダーから辿れる。
+ */
+export function Collapsible({
+  title,
+  icon,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  icon?: IconName;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details className="collapse" open={defaultOpen}>
+      <summary className="collapse__summary">
+        {icon ? <Icon name={icon} size={20} /> : null}
+        <span className="collapse__title">{title}</span>
+        <span className="collapse__chevron" aria-hidden="true">
+          <Icon name="chevron_right" size={20} />
+        </span>
+      </summary>
+      <div className="collapse__body">{children}</div>
+    </details>
+  );
+}

@@ -10,7 +10,7 @@ import { formatDateTime } from '../../core/util/format';
 import { Button, IconButton } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
-import { Banner, SettingRow } from '../../ui/primitives';
+import { Banner, Collapsible, SettingRow } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
 
 export function SettingsPage() {
@@ -186,38 +186,45 @@ export function SettingsPage() {
       <section className="section">
         <h2 className="section__title">墨消しテンプレート ({templates.templates.length})</h2>
         <div className="card card--outlined">
-          <SettingRow
-            title="自動位置合わせ"
-            description={
-              <>
-                <strong>オフのとき</strong>: テンプレートに保存するのは範囲の座標だけです。
-                書式がまったく同じPDFなら、これで十分に当たります。
-                <br />
-                <strong>オンにすると</strong>: 印刷やスキャンで中身が少しずれているPDFにも、
-                ずれを測って範囲を合わせてから当てられるようになり、当たる精度が上がります。
-                <br />
-                そのかわり、テンプレートを保存するときに
-                <strong>そのページを96px幅まで縮めた白黒の簡易画像</strong> (文字は読み取れない粗さ) を
-                一緒に保存します。置き場所は
-                <strong>この端末のブラウザ (localStorage)</strong> と、
-                <strong>テンプレートを書き出したJSONファイルの中</strong>です。
-                どちらも端末の外には出ません (このアプリは外部へ通信しません)。
-                <br />
-                オンにしたあとで保存したテンプレートにだけ付きます。
-                既存のテンプレートに付けたいときは、保存し直してください。
-              </>
-            }
-          >
+          <SettingRow title="自動位置合わせ">
             <select
               className="select"
               value={settings.templateAutoAlign ? 'on' : 'off'}
               onChange={(event) => update({ templateAutoAlign: event.target.value === 'on' })}
               aria-label="自動位置合わせ"
             >
-              <option value="on">使う (推奨)</option>
-              <option value="off">使わない</option>
+              <option value="on">使う</option>
+              <option value="off">使わない (既定)</option>
             </select>
           </SettingRow>
+
+          {/* 説明は長くなるので畳んでおく。読みたい人だけが開ける形にする。 */}
+          <div style={{ margin: '4px 0 14px' }}>
+            <Collapsible title="自動位置合わせとは? (保存されるものの説明)" icon="info">
+              <p style={{ marginTop: 0 }}>
+                <strong>オフのとき</strong> — テンプレートに保存するのは範囲の座標だけです。
+                書式がまったく同じPDFなら、これで十分に当たります。
+              </p>
+              <p>
+                <strong>オンにすると</strong> — 印刷やスキャンで中身が少しずれているPDFにも、
+                ずれを測って範囲を合わせてから当てられるようになり、当たる精度が上がります。
+              </p>
+              <p>
+                そのかわり、テンプレートを保存するときに
+                <strong>そのページを96px幅まで縮めた白黒の簡易画像</strong> (文字は読み取れない粗さ) を
+                一緒に保存します。置き場所は次の2か所だけで、どちらも端末の外には出ません
+                (このアプリは外部へ通信しません)。
+              </p>
+              <ul style={{ paddingLeft: '1.2em' }}>
+                <li>この端末のブラウザ (localStorage)</li>
+                <li>テンプレートを書き出したJSONファイルの中</li>
+              </ul>
+              <p style={{ marginBottom: 0 }}>
+                簡易画像が付くのは、オンにしたあとで保存したテンプレートだけです。
+                すでにあるテンプレートに付けたいときは、保存し直してください。
+              </p>
+            </Collapsible>
+          </div>
 
           {templates.templates.length === 0 ? (
             <p className="text-small muted">まだテンプレートがありません。墨消し画面で範囲を指定して保存できます。</p>
