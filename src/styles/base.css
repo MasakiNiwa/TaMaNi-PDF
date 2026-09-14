@@ -164,7 +164,8 @@ textarea {
   font-size: 0.8125rem;
 }
 
-@media (min-width: 840px) {
+/* 下ナビが消える画面でだけ、下の余白を詰める (条件は shell.css と同じ) */
+@media (min-width: 840px) and (min-height: 600px) {
   .app__main {
     padding: 28px 32px 64px;
   }

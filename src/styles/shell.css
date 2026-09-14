@@ -197,7 +197,12 @@
   height: 28px;
 }
 
-@media (min-width: 840px) {
+/*
+ * ナビゲーションの切り替え。
+ * 幅だけで決めると、横向きのスマホでもレール表示になってしまう。
+ * レールは6項目ぶんの高さを必要とするので、高さの条件も付ける。
+ */
+@media (min-width: 840px) and (min-height: 600px) {
   .nav-rail {
     display: block;
   }
@@ -208,33 +213,6 @@
 
   .app__main {
     padding-bottom: 64px;
-  }
-}
-
-/*
- * 横向きのスマホなど、幅はあるが高さが足りない画面。
- * 6項目ぶんの文字を出すとレールだけで画面の高さを超えてしまうので、
- * アイコンだけの省スペース表示にする。
- */
-@media (min-width: 840px) and (max-height: 560px) {
-  :root {
-    --nav-rail-width: 60px;
-  }
-
-  .nav-rail {
-    padding: 6px 4px;
-  }
-
-  .nav-item {
-    padding: 3px 2px;
-    gap: 0;
-    /* ラベルは読み上げには残したまま、見た目だけ畳む */
-    font-size: 0;
-  }
-
-  .nav-item__indicator {
-    width: 44px;
-    height: 30px;
   }
 }
 

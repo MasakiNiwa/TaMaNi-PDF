@@ -384,7 +384,8 @@
   pointer-events: none;
 }
 
-@media (min-width: 840px) {
+/* 下ナビが消える画面でだけ、下端まで下げる (条件は shell.css と同じ) */
+@media (min-width: 840px) and (min-height: 600px) {
   .snackbar-host {
     bottom: 24px;
   }
