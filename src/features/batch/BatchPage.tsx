@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { zipSync } from 'fflate';
+import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
 import { useTemplates } from '../../app/TemplatesContext';
 import { hrefFor } from '../../app/routes';
@@ -128,6 +129,20 @@ export function BatchPage() {
 
   return (
     <div className="page">
+      {template && jobs.length > 0 ? (
+        <AppBarSlot>
+          {running ? (
+            <Button variant="danger" icon="stop" small onClick={() => abortRef.current?.abort()}>
+              中止
+            </Button>
+          ) : (
+            <Button variant="filled" icon="play" small onClick={run}>
+              実行
+            </Button>
+          )}
+        </AppBarSlot>
+      ) : null}
+
       <header className="page__header">
         <h1 className="page__title">
           <Icon name="layers" size={24} />

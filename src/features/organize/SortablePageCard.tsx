@@ -3,6 +3,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { ThumbnailCache } from '../../core/pdf/render';
 import type { PageRef, PdfSource } from '../../core/pdf/types';
 import { IconButton } from '../../ui/Button';
+import { Icon } from '../../ui/Icon';
 import { PageThumbnail } from '../../ui/PageThumbnail';
 
 export interface SortablePageCardProps {
@@ -34,7 +35,8 @@ export function SortablePageCard({
   onDuplicate,
   onMove,
 }: SortablePageCardProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: page.id });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id: page.id });
 
   const classes = ['page-card', isDragging ? 'page-card--dragging' : '', selected ? 'page-card--selected' : '']
     .filter(Boolean)
@@ -46,34 +48,43 @@ export function SortablePageCard({
       className={classes}
       style={{ transform: CSS.Translate.toString(transform), transition }}
     >
-      {/* カード全体をドラッグ用のつまみにする。ボタンより下に敷いてクリックを邪魔しない。 */}
-      <button
-        type="button"
-        className="page-card__handle"
-        aria-label={`${index + 1}ページ目を並べ替える`}
-        {...attributes}
-        {...listeners}
-      />
+      <div className="page-card__top">
+        <span className="page-card__badge">{index + 1}</span>
 
-      <span className="page-card__badge">{index + 1}</span>
-      <input
-        className="page-card__check"
-        type="checkbox"
-        checked={selected}
-        onChange={(event) => onToggleSelect(page.id, event.target.checked)}
-        aria-label={`${index + 1}ページ目を選択`}
-      />
+        {/*
+          並べ替えはこのつまみからだけ始める。
+          カード全体をつまみにすると、タッチ操作でページ一覧を縦スクロールできなくなる
+          (ドラッグ開始のために touch-action: none が必要なため)。
+        */}
+        <button
+          type="button"
+          className="page-card__drag"
+          ref={setActivatorNodeRef}
+          aria-label={`${index + 1}ページ目をドラッグして並べ替える`}
+          title="ドラッグして並べ替え"
+          {...attributes}
+          {...listeners}
+        >
+          <Icon name="drag_indicator" size={18} />
+        </button>
 
-      <div className="page-card__body">
-        <PageThumbnail
-          cache={cache}
-          source={source}
-          pageIndex={page.sourceIndex}
-          rotation={page.rotation}
-          boxWidth={boxWidth}
-          alt={`${index + 1}ページ目のプレビュー`}
+        <input
+          className="page-card__check"
+          type="checkbox"
+          checked={selected}
+          onChange={(event) => onToggleSelect(page.id, event.target.checked)}
+          aria-label={`${index + 1}ページ目を選択`}
         />
       </div>
+
+      <PageThumbnail
+        cache={cache}
+        source={source}
+        pageIndex={page.sourceIndex}
+        rotation={page.rotation}
+        boxWidth={boxWidth}
+        alt={`${index + 1}ページ目のプレビュー`}
+      />
 
       <div className="page-card__meta" title={source.name}>
         {source.name}

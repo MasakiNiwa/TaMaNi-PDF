@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Icon } from '../ui/Icon';
+import { AppBarSlotProvider } from './AppBarSlot';
 import { APP_NAME, APP_TAGLINE, APP_VERSION, REPO_URL } from './version';
 import { hrefFor, ROUTES, type RouteDef } from './routes';
 
@@ -24,6 +25,9 @@ function NavItems({ current }: { current: RouteDef }) {
 }
 
 export function AppShell({ route, children }: { route: RouteDef; children: ReactNode }) {
+  // 各画面が主要操作を差し込むための入れ物
+  const [actionSlot, setActionSlot] = useState<HTMLElement | null>(null);
+
   return (
     <div className="app">
       <header className="app-bar">
@@ -37,21 +41,7 @@ export function AppShell({ route, children }: { route: RouteDef; children: React
           </span>
         </a>
         <div className="spacer" />
-        <div className="app-bar__actions">
-          <a
-            className="icon-btn"
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="GitHubリポジトリを開く"
-            title="GitHubリポジトリを開く"
-          >
-            <Icon name="file_copy" size={20} />
-          </a>
-          <a className="icon-btn" href={hrefFor('help')} aria-label="ヘルプ" title="ヘルプ">
-            <Icon name="help" size={20} />
-          </a>
-        </div>
+        <div className="app-bar__actions" ref={setActionSlot} />
       </header>
 
       <div className="app__body">
@@ -62,7 +52,7 @@ export function AppShell({ route, children }: { route: RouteDef; children: React
         </nav>
 
         <main className="app__main">
-          {children}
+          <AppBarSlotProvider value={actionSlot}>{children}</AppBarSlotProvider>
           <footer className="app-footer">
             <div className="app-footer__row">
               <span>

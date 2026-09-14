@@ -11,6 +11,7 @@ import {
 } from '@dnd-kit/core';
 import { restrictToParentElement } from '@dnd-kit/modifiers';
 import { SortableContext, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
+import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
 import { buildPdfFromPages } from '../../core/pdf/assemble';
 import { PdfUserError } from '../../core/pdf/errors';
@@ -145,6 +146,16 @@ export function OrganizePage() {
 
   return (
     <div className="page">
+      {hasPages ? (
+        <AppBarSlot>
+          <IconButton icon="undo" label="元に戻す" disabled={!deck.canUndo} onClick={deck.undo} />
+          <IconButton icon="redo" label="やり直す" disabled={!deck.canRedo} onClick={deck.redo} />
+          <Button variant="filled" icon="download" small onClick={exportPdf} disabled={busy}>
+            書き出す
+          </Button>
+        </AppBarSlot>
+      ) : null}
+
       <header className="page__header">
         <h1 className="page__title">
           <Icon name="pages" size={24} />
@@ -175,10 +186,6 @@ export function OrganizePage() {
       ) : (
         <>
           <div className="toolbar">
-            <IconButton icon="undo" label="元に戻す" disabled={!deck.canUndo} onClick={deck.undo} />
-            <IconButton icon="redo" label="やり直す" disabled={!deck.canRedo} onClick={deck.redo} />
-            <span className="toolbar__divider" />
-
             <Button
               small
               variant="outlined"
@@ -221,10 +228,6 @@ export function OrganizePage() {
               </Button>
             )}
 
-            <span className="spacer" />
-            <Button variant="filled" icon="download" onClick={exportPdf} disabled={busy || !hasPages}>
-              PDFを書き出す
-            </Button>
           </div>
 
           <p className="text-small muted" style={{ marginBottom: 12 }}>

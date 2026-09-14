@@ -64,7 +64,39 @@
   border: 1px solid var(--md-outline-variant);
   border-radius: var(--shape-md);
   background: var(--md-surface-container-low);
-  touch-action: manipulation;
+}
+
+.page-card__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+/*
+ * 並べ替えのつまみ。
+ * dnd-kit のタッチ操作はブラウザ既定のスクロールと衝突するため、
+ * ここだけ touch-action を切る。カード全体に付けると一覧をスクロールできなくなる。
+ */
+.page-card__drag {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 32px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--shape-sm);
+  background: var(--md-surface-container-highest);
+  color: var(--md-on-surface-variant);
+  cursor: grab;
+  touch-action: none;
+}
+
+.page-card__drag:active {
+  cursor: grabbing;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
 }
 
 .page-card--dragging {
@@ -77,29 +109,7 @@
   color: var(--md-on-primary-container);
 }
 
-.page-card__handle {
-  position: absolute;
-  inset: 0;
-  border: none;
-  background: transparent;
-  cursor: grab;
-  border-radius: inherit;
-}
-
-.page-card__handle:active {
-  cursor: grabbing;
-}
-
-.page-card__body {
-  position: relative;
-  pointer-events: none;
-}
-
 .page-card__badge {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  z-index: 2;
   min-width: 26px;
   padding: 1px 7px;
   border-radius: var(--shape-full);
@@ -111,12 +121,10 @@
 }
 
 .page-card__check {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 3;
+  flex: none;
   width: 22px;
   height: 22px;
+  margin: 0;
   accent-color: var(--md-primary);
   cursor: pointer;
 }
@@ -129,7 +137,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  pointer-events: none;
 }
 
 .page-card--selected .page-card__meta {
@@ -137,8 +144,6 @@
 }
 
 .page-card__actions {
-  position: relative;
-  z-index: 2;
   display: flex;
   gap: 2px;
   flex-wrap: wrap;
