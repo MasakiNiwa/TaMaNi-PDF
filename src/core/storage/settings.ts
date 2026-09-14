@@ -21,6 +21,9 @@ export interface Settings {
    *
    * 有効にすると、テンプレート保存時にそのページの縮小画像 (96px幅・白黒) を
    * 端末内に保存し、適用時のずれの推定に使う。無効なら画像を持たない。
+   *
+   * 既定は無効。保存するものが座標だけで済むほうが、初めて使う人にとって
+   * 安心できる既定だと考えたため。必要な人が設定で有効にする。
    */
   templateAutoAlign: boolean;
 }
@@ -36,7 +39,7 @@ export const DEFAULT_SETTINGS: Settings = {
   thumbnailSize: 'medium',
   organizeSuffix: '_edited',
   redactSuffix: '_redacted',
-  templateAutoAlign: true,
+  templateAutoAlign: false,
 };
 
 const KEY = 'settings';

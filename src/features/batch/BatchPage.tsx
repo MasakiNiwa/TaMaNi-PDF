@@ -85,7 +85,13 @@ export function BatchPage() {
         proxy = await openWithPdfjs(bytes);
         // ファイルごとにずれを測る。同じ発行元でも回によって位置が動くことがあるため。
         const alignment = await estimateTemplateAlignment(template, proxy, settings.templateAutoAlign);
-        patchJob(job.id, { align: alignSummary(alignment) });
+        // オフのときや基準画像がないときは、行ごとに出しても情報が増えないので黙っておく
+        // (どちらなのかはテンプレートを選んだところに出している)
+        patchJob(job.id, {
+          align: alignment.reason === 'disabled' || alignment.reason === 'noAnchor'
+            ? undefined
+            : alignSummary(alignment),
+        });
         const output = await redactToPdf({
           bytes,
           proxy,
@@ -203,10 +209,10 @@ export function BatchPage() {
                   {template.sourcePageCount ? ` (作成時のページ数: ${template.sourcePageCount})` : ''}
                   <br />
                   {template.anchor && settings.templateAutoAlign
-                    ? '自動位置合わせ: 有効 — ファイルごとにずれを測って範囲を合わせます'
+                    ? '自動位置合わせ: オン — ファイルごとにずれを測って範囲を合わせます'
                     : template.anchor
-                      ? '自動位置合わせ: 設定で無効になっています'
-                      : '自動位置合わせ: このテンプレートには基準画像がありません (保存し直すと付きます)'}
+                      ? '自動位置合わせ: 設定でオフ中 — 保存した座標のとおりに当てます'
+                      : '自動位置合わせ: このテンプレートは座標だけで保存されています (設定でオンにしてから保存し直すと使えます)'}
                 </span>
               ) : null}
             </div>
@@ -366,8 +372,9 @@ export function BatchPage() {
 
       <div style={{ marginTop: 16 }}>
         <Banner tone="warning">
-          自動位置合わせはPDFどうしの見た目を比べて、ずれを推定する仕組みです。
-          書式が違うPDFや、似た配置が見つからないPDFでは補正されません。
+          {template?.anchor && settings.templateAutoAlign
+            ? '自動位置合わせはPDFどうしの見た目を比べて、ずれを推定する仕組みです。書式が違うPDFや、似た配置が見つからないPDFでは補正されません。'
+            : 'テンプレートは座標で範囲を指定しています。書式がずれているPDFでは、隠したい部分から範囲がずれることがあります。'}
           出力されたPDFは必ず目で確認してください。
         </Banner>
       </div>

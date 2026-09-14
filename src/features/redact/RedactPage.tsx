@@ -561,9 +561,19 @@ export function RedactPage() {
           />
           <span className="field__hint">
             {rects.length}個の範囲を保存します。この端末のブラウザにだけ保存されます。
-            {settings.templateAutoAlign
-              ? ' 自動位置合わせのため、このページを96px幅まで縮めた白黒画像 (文字は読めません) も一緒に保存します。'
-              : ' 自動位置合わせは設定で切っているため、座標だけを保存します。'}
+            {settings.templateAutoAlign ? (
+              <>
+                {' '}
+                自動位置合わせがオンなので、このページを96px幅まで縮めた白黒の簡易画像
+                (文字は読めません) も一緒に保存します。
+              </>
+            ) : (
+              <>
+                {' '}
+                保存するのは座標だけです。中身が少しずれたPDFにも当てたいときは、
+                <a href={hrefFor('settings')}>設定</a> で自動位置合わせをオンにできます。
+              </>
+            )}
           </span>
         </div>
         <div className="row" style={{ marginTop: 10 }}>
@@ -593,6 +603,7 @@ export function RedactPage() {
                       {template.rects.length}個の範囲
                       {template.sourcePageCount ? ` ・ 作成時 ${template.sourcePageCount}ページ` : ''}
                       {template.anchor ? ' ・ 自動位置合わせあり' : ''}
+                      {template.anchor && !settings.templateAutoAlign ? ' (設定でオフ中)' : ''}
                     </div>
                   </div>
                   <Button

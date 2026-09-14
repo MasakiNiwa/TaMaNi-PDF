@@ -188,7 +188,25 @@ export function SettingsPage() {
         <div className="card card--outlined">
           <SettingRow
             title="自動位置合わせ"
-            description="同じ書式でも位置がずれているPDFに、範囲を合わせてから当てます。使うときは、テンプレート保存時にそのページを96px幅まで縮めた白黒画像 (文字は読めません) も端末内に保存します。"
+            description={
+              <>
+                <strong>オフのとき</strong>: テンプレートに保存するのは範囲の座標だけです。
+                書式がまったく同じPDFなら、これで十分に当たります。
+                <br />
+                <strong>オンにすると</strong>: 印刷やスキャンで中身が少しずれているPDFにも、
+                ずれを測って範囲を合わせてから当てられるようになり、当たる精度が上がります。
+                <br />
+                そのかわり、テンプレートを保存するときに
+                <strong>そのページを96px幅まで縮めた白黒の簡易画像</strong> (文字は読み取れない粗さ) を
+                一緒に保存します。置き場所は
+                <strong>この端末のブラウザ (localStorage)</strong> と、
+                <strong>テンプレートを書き出したJSONファイルの中</strong>です。
+                どちらも端末の外には出ません (このアプリは外部へ通信しません)。
+                <br />
+                オンにしたあとで保存したテンプレートにだけ付きます。
+                既存のテンプレートに付けたいときは、保存し直してください。
+              </>
+            }
           >
             <select
               className="select"
@@ -258,8 +276,9 @@ export function SettingsPage() {
             />
           </div>
           <p className="text-small muted" style={{ marginTop: 8, marginBottom: 0 }}>
-            書き出したJSONに入るのは、範囲の座標と、自動位置合わせ用の縮小画像 (96px幅の白黒。文字は読めません) だけです。
-            PDFそのものは含まれません。
+            {templates.templates.some((template) => template.anchor)
+              ? '書き出したJSONに入るのは、範囲の座標と、自動位置合わせ用の簡易画像 (96px幅の白黒。文字は読めません) です。PDFそのものは含まれません。'
+              : '書き出したJSONに入るのは範囲の座標だけです。PDFの中身は含まれません。'}
           </p>
         </div>
       </section>

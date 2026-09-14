@@ -1,4 +1,5 @@
 import { hrefFor } from '../../app/routes';
+import { useSettings } from '../../app/SettingsContext';
 import { APP_NAME, APP_VERSION, ISSUES_URL, REPO_URL } from '../../app/version';
 import { Icon } from '../../ui/Icon';
 import { Banner } from '../../ui/primitives';
@@ -13,6 +14,10 @@ function Faq({ question, children }: { question: string; children: React.ReactNo
 }
 
 export function HelpPage() {
+  // 自動位置合わせは既定でオフ。いまどちらなのかで説明を切り替える。
+  const { settings } = useSettings();
+  const autoAlign = settings.templateAutoAlign;
+
   return (
     <div className="page">
       <header className="page__header">
@@ -45,10 +50,23 @@ export function HelpPage() {
               <li>フォントやアイコンを含め、外部サービスからの読み込みを使っていません。</li>
               <li>アクセス解析や広告のタグを入れていません。</li>
               <li>
-                端末に保存するのは「設定」と「墨消しテンプレート」だけです。PDFそのものは保存しません。
-                テンプレートには範囲の座標に加えて、<strong>自動位置合わせ用の縮小画像</strong>
-                (そのページを96px幅まで縮めた白黒画像。文字は読み取れません) が入ります。
-                これも端末の中だけに置かれ、<a href={hrefFor('settings')}>設定</a> で保存しないようにもできます。
+                端末に保存するのは「設定」と「墨消しテンプレート (範囲の座標)」だけです。
+                PDFそのものは保存しません。
+              </li>
+              <li>
+                <a href={hrefFor('settings')}>設定</a> の<strong>自動位置合わせ</strong>
+                {autoAlign ? (
+                  <>
+                    は<strong>オンです</strong>。これから保存するテンプレートには、範囲の座標に加えて
+                    そのページを96px幅まで縮めた白黒の簡易画像 (文字は読み取れない粗さ) が入ります。
+                    置き場所はこの端末のブラウザと、書き出したJSONファイルの中だけです。
+                  </>
+                ) : (
+                  <>
+                    は<strong>オフ (既定)</strong> です。オンにすると当たる精度が上がりますが、
+                    テンプレートにページの簡易画像 (96px幅・白黒) が一緒に保存されるようになります。
+                  </>
+                )}
               </li>
             </ul>
             <p style={{ marginBottom: 0 }}>
@@ -172,8 +190,11 @@ export function HelpPage() {
           <ol style={{ paddingLeft: '1.2em' }}>
             <li>墨消し画面で範囲を指定し、「テンプレート」→「保存」で名前を付けて保存します。</li>
             <li>
-              保存したときのページの見え方も一緒に覚えているので、<strong>自動位置合わせ</strong>が働きます。
-              同じ書式でも印刷やスキャンのしかたで中身が少しずれているPDFに、範囲を合わせてから当てます。
+              <strong>自動位置合わせ</strong>を
+              <a href={hrefFor('settings')}>設定</a> でオンにしておくと、
+              保存したときのページの見え方も一緒に覚えて、印刷やスキャンで中身が少しずれているPDFにも
+              範囲を合わせてから当てられます (いまは
+              <strong>{autoAlign ? 'オン' : 'オフ'}</strong>)。
             </li>
             <li>
               次回からは「呼び出し」で同じ範囲を一発で復元できます。
@@ -187,8 +208,9 @@ export function HelpPage() {
           </ol>
           <p>
             範囲はページに対する<strong>割合</strong>で保存しているため、用紙サイズが違っても同じ位置に当たります。
-            自動位置合わせは、そこからさらに「どれだけずれているか」を測って範囲を動かします。
-            補正した量と一致度はプレビューと一覧に出るので、目安にしてください。
+            {autoAlign
+              ? '自動位置合わせは、そこからさらに「どれだけずれているか」を測って範囲を動かします。補正した量と一致度はプレビューと一覧に出るので、目安にしてください。'
+              : '自動位置合わせはオフなので、保存した座標のとおりに当てます。書式が同じPDFなら、これで当たります。'}
           </p>
           <p style={{ marginBottom: 0 }}>
             書式そのものが違うPDFや、似た配置が見つからないPDFでは補正されません。
@@ -218,6 +240,10 @@ export function HelpPage() {
 
         <Faq question="自動位置合わせはどこまで合わせられますか">
           <p style={{ marginTop: 0 }}>
+            <strong>既定ではオフ</strong>です (いまは <strong>{autoAlign ? 'オン' : 'オフ'}</strong>)。
+            <a href={hrefFor('settings')}>設定</a> でオンにすると使えます。
+          </p>
+          <p>
             ページ全体が<strong>平行にずれている</strong>場合と、<strong>少し拡大縮小されている</strong>場合に対応します
             (おおむね上下左右12%、大きさ±5%まで)。スキャンし直したPDFや、余白の取り方が変わったPDFが対象です。
           </p>

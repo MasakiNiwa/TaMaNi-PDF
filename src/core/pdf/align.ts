@@ -368,6 +368,6 @@ export function alignSummary(alignment: AlignResult): string {
       return '基準画像なし (そのまま適用)';
     case 'disabled':
     default:
-      return '自動位置合わせなし';
+      return 'オフ (設定でオンにできます)';
   }
 }
