@@ -176,3 +176,57 @@
   white-space: nowrap;
   font-weight: 600;
 }
+
+/* ---------- ページ番号の設定 ---------- */
+
+.number-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.number-grid__cell {
+  min-height: 40px;
+  padding: 4px;
+  border: 1px solid var(--md-outline);
+  border-radius: var(--shape-sm);
+  background: var(--md-surface-container-lowest);
+  color: var(--md-on-surface-variant);
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.number-grid__cell--on {
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+/*
+ * 仕上がりの目安。実際のページを描くのではなく、紙に見立てた枠の
+ * どこに番号が乗るかだけを示す (設定を変えた瞬間に反応させたいため)。
+ */
+.number-preview {
+  position: relative;
+  display: flex;
+  aspect-ratio: 1 / 1.414;
+  max-width: 112px;
+  margin: 0 auto;
+  padding: 8px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-sm);
+  background: #ffffff;
+}
+
+.number-preview__mark {
+  font-size: 0.6875rem;
+  color: #333333;
+}
+
+.number-preview--bottom-center { align-items: flex-end; justify-content: center; }
+.number-preview--bottom-right { align-items: flex-end; justify-content: flex-end; }
+.number-preview--bottom-left { align-items: flex-end; justify-content: flex-start; }
+.number-preview--top-center { align-items: flex-start; justify-content: center; }
+.number-preview--top-right { align-items: flex-start; justify-content: flex-end; }
+.number-preview--top-left { align-items: flex-start; justify-content: flex-start; }

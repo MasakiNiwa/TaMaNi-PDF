@@ -1,5 +1,6 @@
 import { PDFDocument, degrees } from 'pdf-lib';
 import { toUserError } from './errors';
+import { drawPageNumbers, type PageNumberOptions } from './pageNumber';
 import { normalizeRotation, type PageRef, type PdfSource } from './types';
 
 export const PRODUCER = 'TaMaNi-PDF';
@@ -9,10 +10,13 @@ export const PRODUCER = 'TaMaNi-PDF';
  *
  * 元ページの内容はそのままコピーするので、文字は文字のまま残る (再ラスタライズしない)。
  * 同じ供給元からのコピーは1回の copyPages にまとめてから順番に並べ直している。
+ *
+ * pageNumber を渡すと、並べ終えたあとにページ番号を描き足す。
  */
 export async function buildPdfFromPages(
   sources: ReadonlyMap<string, PdfSource>,
   pages: readonly PageRef[],
+  pageNumber?: PageNumberOptions | null,
 ): Promise<Uint8Array> {
   if (pages.length === 0) {
     throw new Error('出力するページがありません。');
@@ -55,6 +59,9 @@ export async function buildPdfFromPages(
     }
     out.addPage(copiedPage);
   }
+
+  // 番号は最後に描く。並べ替えと回転が確定してからでないと位置が決まらない。
+  if (pageNumber) await drawPageNumbers(out, pageNumber);
 
   return out.save({ useObjectStreams: true });
 }
