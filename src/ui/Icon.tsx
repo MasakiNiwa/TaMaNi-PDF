@@ -38,6 +38,7 @@ export type IconName =
   | 'settings'
   | 'shield'
   | 'stop'
+  | 'tag'
   | 'undo'
   | 'upload'
   | 'visibility'
@@ -88,6 +89,7 @@ const PATHS: Record<IconName, string> = {
   shield:
     'M12 22q-3.5-.9-5.75-4T4 11.1V5l8-3 8 3v6.1q0 3.8-2.25 6.9T12 22m0-2.1q2.6-.8 4.3-3.3T18 11.1V6.4l-6-2.25L6 6.4v4.7q0 3.1 1.7 5.5t4.3 3.3',
   stop: 'M6 18V6h12v12z',
+  tag: 'M5 21l1-4H2v-2h4.5l1-4H3V9h5l1-4h2l-1 4h4l1-4h2l-1 4h4v2h-4.5l-1 4H21v2h-5l-1 4h-2l1-4h-4l-1 4zm4.5-6h4l1-4h-4z',
   undo: 'M8 19v-2h6.1q1.5 0 2.5-.9t1-2.3q0-1.4-1-2.3t-2.5-.9H8.9l3 3L10.5 15 5 9.5 10.5 4l1.4 1.5-3 3h5.2q2.3 0 3.9 1.5T19.6 13.7q0 2.3-1.6 3.8T14.1 19z',
   upload: 'M11 16V7.8L8.4 10.4 7 9l5-5 5 5-1.4 1.4L13 7.8V16zM5 20v-5h2v3h10v-3h2v5z',
   visibility:

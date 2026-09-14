@@ -135,6 +135,19 @@ await shoot('desktop-home', { width: 1280, height: 900, route: '' });
 await shoot('desktop-organize', { width: 1280, height: 1000, route: '#/organize', setup: loadIntoOrganize });
 await shoot('desktop-redact', { width: 1280, height: 1000, route: '#/redact', setup: loadIntoRedact });
 await shoot('desktop-batch', { width: 1280, height: 900, route: '#/batch' });
+await shoot('desktop-page-number', {
+  width: 1280,
+  height: 1000,
+  route: '#/organize',
+  setup: async (page) => {
+    await loadIntoOrganize(page);
+    await page.getByRole('button', { name: /ページ番号/ }).click();
+    await page.locator('.number-grid').waitFor();
+    await page.getByRole('button', { name: '下 右' }).click();
+    await page.locator('#number-format').selectOption('slash');
+    await page.waitForTimeout(300);
+  },
+});
 await shoot('desktop-settings', { width: 1280, height: 1100, route: '#/settings' });
 await shoot('desktop-help', { width: 1280, height: 1000, route: '#/help' });
 await shoot('desktop-home-dark', { width: 1280, height: 900, route: '', dark: true });

@@ -18,6 +18,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { inflateSync } from 'node:zlib';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -88,9 +89,38 @@ async function makeSamplePdf(pageCount = 3, shift = { x: 0, y: 0 }) {
   return Buffer.from(await doc.save());
 }
 
-/** 出力PDFの生バイトに、その文字列が含まれていないことを確かめる */
+/**
+ * 出力PDFの中に、その文字列が文字として入っているか。
+ *
+ * pdf-lib はページの中身を圧縮して書き出すので、生バイトを探すだけでは
+ * 必ず「見つからない」になってしまう (墨消しの検証が素通りしてしまう)。
+ * 圧縮されたストリームを展開してから探す。
+ */
 function pdfContainsText(bytes, needle) {
-  return Buffer.from(bytes).includes(Buffer.from(needle, 'latin1'));
+  const buffer = Buffer.from(bytes);
+  // pdf-lib は文字を16進表記 (<4B45...> Tj) で書き出すので、両方の形を探す
+  const raw = Buffer.from(needle, 'latin1');
+  const hexUpper = Buffer.from(raw.toString('hex').toUpperCase(), 'latin1');
+  const hexLower = Buffer.from(raw.toString('hex'), 'latin1');
+  const found = (data) => data.includes(raw) || data.includes(hexUpper) || data.includes(hexLower);
+  if (found(buffer)) return true;
+
+  let at = 0;
+  for (;;) {
+    const start = buffer.indexOf('stream', at);
+    if (start < 0) return false;
+    let from = start + 'stream'.length;
+    if (buffer[from] === 0x0d) from += 1;
+    if (buffer[from] === 0x0a) from += 1;
+    const end = buffer.indexOf('endstream', from);
+    if (end < 0) return false;
+    try {
+      if (found(inflateSync(buffer.subarray(from, end)))) return true;
+    } catch {
+      /* 圧縮されていない、または別の方式のストリームは飛ばす */
+    }
+    at = end + 'endstream'.length;
+  }
 }
 
 /**
@@ -289,10 +319,165 @@ if (downloads[0]) {
   const out = await PDFDocument.load(downloads[0].body);
   check('書き出しPDFは2ページ', out.getPageCount() === 2, `実際: ${out.getPageCount()}`);
   check('ファイル名に接尾辞が付く', downloads[0].name.includes('_edited'), downloads[0].name);
+  check('ページ整理では文字がそのまま残る', pdfContainsText(downloads[0].body, 'KEEP-THIS-TEXT'));
+}
+
+console.log('\n[2b] ページ番号');
+{
+  // 出力PDFの指定した区画に、濃い画素があるかどうかを見る。
+  // 番号は画像化しないので、このアプリ自身に描かせて確かめる。
+  const hasInkIn = async (buffer, area) => {
+    await page.goto(base + '#/redact');
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('input[type=file]').first().setInputFiles({
+      name: 'numbered.pdf',
+      mimeType: 'application/pdf',
+      buffer,
+    });
+    await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(2500);
+    return page.evaluate((box) => {
+      const canvas = document.querySelector('.redact-stage__canvas');
+      const ctx = canvas.getContext('2d');
+      const x = Math.round(canvas.width * box.x0);
+      const y = Math.round(canvas.height * box.y0);
+      const w = Math.max(1, Math.round(canvas.width * (box.x1 - box.x0)));
+      const h = Math.max(1, Math.round(canvas.height * (box.y1 - box.y0)));
+      const data = ctx.getImageData(x, y, w, h).data;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] < 140 && data[i + 1] < 140 && data[i + 2] < 140) return true;
+      }
+      return false;
+    }, area);
+  };
+
+  // 紙のいちばん下、右寄りの帯 (元のPDFでは何も描かれていない)
+  const bottomRight = { x0: 0.6, y0: 0.94, x1: 0.98, y1: 0.99 };
+
+  const openOrganize = async () => {
+    await page.goto(base + '#/organize');
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('.dropzone').waitFor({ timeout: 20_000 });
+    await page.locator('input[type=file]').first().setInputFiles({
+      name: 'numbering.pdf',
+      mimeType: 'application/pdf',
+      buffer: samplePdf,
+    });
+    await page.locator('.page-card').first().waitFor({ timeout: 20_000 });
+  };
+
+  // 番号を入れずに書き出したときは、その帯は白いまま
+  await openOrganize();
+  downloads.length = 0;
+  await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+  await page.waitForTimeout(3000);
+  const plain = downloads.find((d) => d.name.endsWith('.pdf'));
+  check('番号なしで書き出せる', Boolean(plain), JSON.stringify(downloads.map((d) => d.name)));
+  if (plain) {
+    check('番号を入れないと下の帯は白いまま', !(await hasInkIn(plain.body, bottomRight)));
+  }
+
+  // 下の右に「1 / 3」を入れて書き出す
+  await openOrganize();
+  await page.getByRole('button', { name: /ページ番号/ }).click();
+  await page.locator('.number-grid').waitFor({ timeout: 10_000 });
+  check('ページ番号のダイアログが開く', (await page.locator('.number-grid__cell').count()) === 6);
+  await page.getByRole('button', { name: '下 右' }).click();
+  await page.locator('#number-format').selectOption('slash');
+  const previewText = await page.locator('.number-preview__mark').innerText();
+  check('仕上がりの目安が書き方に追従する', previewText === '1 / 3', previewText);
+  await page.getByRole('button', { name: 'この設定で入れる' }).click();
+  await page.waitForTimeout(400);
   check(
-    'ページ整理では文字がそのまま残る',
-    pdfContainsText(downloads[0].body, 'KEEP-THIS-TEXT') || out.getPageCount() === 2,
+    'ツールバーに選んだ位置が出る',
+    (await page.getByRole('button', { name: /ページ番号: 下 右/ }).count()) === 1,
   );
+
+  downloads.length = 0;
+  await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+  await page.waitForTimeout(3000);
+  const numbered = downloads.find((d) => d.name.endsWith('.pdf'));
+  check('番号つきで書き出せる', Boolean(numbered));
+  if (numbered) {
+    const out = await PDFDocument.load(numbered.body);
+    check('番号を入れてもページ数は変わらない', out.getPageCount() === 3, `実際: ${out.getPageCount()}`);
+    check('元の文字は文字のまま残る', pdfContainsText(numbered.body, 'KEEP-THIS-TEXT'));
+    check('指定した位置に番号が描かれる', await hasInkIn(numbered.body, bottomRight));
+  }
+
+  // 1ページ目に入れない設定
+  await openOrganize();
+  await page.getByRole('button', { name: /ページ番号/ }).click();
+  await page.locator('.number-grid').waitFor({ timeout: 10_000 });
+  await page.getByRole('button', { name: '下 右' }).click();
+  await page.getByText('1ページ目には入れない').click();
+  await page.getByRole('button', { name: 'この設定で入れる' }).click();
+  downloads.length = 0;
+  await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+  await page.waitForTimeout(3000);
+  const skipped = downloads.find((d) => d.name.endsWith('.pdf'));
+  if (skipped) {
+    check('1ページ目を飛ばすと1枚目には入らない', !(await hasInkIn(skipped.body, bottomRight)));
+  } else {
+    check('1ページ目を飛ばすと1枚目には入らない', false, '出力を取得できませんでした');
+  }
+}
+
+console.log('\n[2c] ページ数の多いPDF');
+{
+  // 数百ページでも一覧が重くならないよう、見えている行だけを描いている。
+  // 描いていないページも操作と書き出しの対象に残っていることまで見る。
+  const bigPdf = await makeSamplePdf(150);
+  const big = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
+  const bigPage = await big.newPage();
+  bigPage.setDefaultTimeout(30_000);
+  const bigDownloads = [];
+  bigPage.on('download', async (download) => {
+    const stream = await download.createReadStream();
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    bigDownloads.push({ name: download.suggestedFilename(), body: Buffer.concat(chunks) });
+  });
+
+  await bigPage.goto(base + '#/organize');
+  await bigPage.locator('.dropzone').waitFor({ timeout: 30_000 });
+  await bigPage.locator('input[type=file]').first().setInputFiles({
+    name: 'big.pdf',
+    mimeType: 'application/pdf',
+    buffer: bigPdf,
+  });
+  await bigPage.locator('.page-card').first().waitFor({ timeout: 30_000 });
+  await bigPage.waitForTimeout(1500);
+
+  const summary = await bigPage.locator('.text-small.muted').first().innerText();
+  check('150ページとして読み込める', summary.includes('全150ページ'), summary);
+
+  const drawn = await bigPage.locator('.page-card').count();
+  check('一覧は見えているぶんだけ描く', drawn > 0 && drawn < 80, `描かれた枚数 ${drawn}`);
+
+  // 下まで送ると、最後のページが描かれる
+  await bigPage.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await bigPage.waitForTimeout(800);
+  const lastBadge = await bigPage.locator('.page-card__badge').last().innerText();
+  check('下まで送ると最後のページが出る', lastBadge === '150', lastBadge);
+  const drawnAtBottom = await bigPage.locator('.page-card').count();
+  check('下まで送っても描く枚数は増えない', drawnAtBottom < 80, `描かれた枚数 ${drawnAtBottom}`);
+
+  // 描いていないページも書き出しに含まれる
+  await bigPage.evaluate(() => window.scrollTo(0, 0));
+  await bigPage.waitForTimeout(400);
+  bigDownloads.length = 0;
+  await bigPage.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+  await bigPage.waitForTimeout(12_000);
+  const bigOut = bigDownloads.find((d) => d.name.endsWith('.pdf'));
+  if (bigOut) {
+    const out = await PDFDocument.load(bigOut.body);
+    check('間引いても150ページすべて書き出される', out.getPageCount() === 150, `実際: ${out.getPageCount()}`);
+  } else {
+    check('間引いても150ページすべて書き出される', false, '出力を取得できませんでした');
+  }
+
+  await big.close();
 }
 
 console.log('\n[3] 墨消し');
