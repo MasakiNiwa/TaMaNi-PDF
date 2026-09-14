@@ -1,0 +1,118 @@
+/**
+ * アイコンはすべてインラインSVG。
+ * アイコンフォントをCDNから読み込まないので、外部への接続が発生しない。
+ * パスは Material Symbols と同じ 24x24 グリッドで描いている。
+ */
+export type IconName =
+  | 'add'
+  | 'arrow_back'
+  | 'arrow_forward'
+  | 'check'
+  | 'chevron_left'
+  | 'chevron_right'
+  | 'close'
+  | 'delete'
+  | 'download'
+  | 'draw'
+  | 'edit'
+  | 'error'
+  | 'file_copy'
+  | 'folder_zip'
+  | 'help'
+  | 'home'
+  | 'image'
+  | 'info'
+  | 'layers'
+  | 'lock'
+  | 'menu_book'
+  | 'note_add'
+  | 'pages'
+  | 'play'
+  | 'redo'
+  | 'refresh'
+  | 'rotate_left'
+  | 'rotate_right'
+  | 'save'
+  | 'settings'
+  | 'shield'
+  | 'stop'
+  | 'undo'
+  | 'upload'
+  | 'warning';
+
+const PATHS: Record<IconName, string> = {
+  add: 'M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z',
+  arrow_back: 'M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z',
+  arrow_forward: 'M12 4l-1.4 1.4L16.2 11H4v2h12.2l-5.6 5.6L12 20l8-8z',
+  check: 'M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z',
+  chevron_left: 'M15.4 7.4L14 6l-6 6 6 6 1.4-1.4-4.6-4.6z',
+  chevron_right: 'M10 6L8.6 7.4l4.6 4.6-4.6 4.6L10 18l6-6z',
+  close: 'M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z',
+  delete: 'M7 21q-.8 0-1.4-.6T5 19V6H4V4h5V3h6v1h5v2h-1v13q0 .8-.6 1.4T17 21zm2-4h2V8H9zm4 0h2V8h-2z',
+  download: 'M12 16l-5-5 1.4-1.4L11 12.2V4h2v8.2l2.6-2.6L17 11zM5 20v-5h2v3h10v-3h2v5z',
+  draw: 'M3 21v-4.2L16.2 3.6q.3-.3.7-.4t.8 0q.4.1.7.4l1.9 2q.3.3.4.7t0 .8q-.1.4-.4.7L7.2 21zM17 7.6l1.3-1.3-1.6-1.6L15.4 6z',
+  edit: 'M5 19h1.4l9-9L14 8.6l-9 9zM3 21v-4.2L16.2 3.6q.3-.3.7-.4t.8 0q.4.1.7.4l1.9 2q.3.3.4.7t0 .8q-.1.4-.4.7L7.2 21z',
+  error: 'M12 17q.4 0 .7-.3t.3-.7-.3-.7-.7-.3-.7.3-.3.7.3.7.7.3m-1-4h2V7h-2zm1 9a10 10 0 1 1 0-20 10 10 0 0 1 0 20',
+  file_copy: 'M9 18q-.8 0-1.4-.6T7 16V4q0-.8.6-1.4T9 2h9q.8 0 1.4.6T20 4v12q0 .8-.6 1.4T18 18zm-4 4q-.8 0-1.4-.6T3 20V6h2v14h11v2z',
+  folder_zip:
+    'M4 20q-.8 0-1.4-.6T2 18V6q0-.8.6-1.4T4 4h6l2 2h8q.8 0 1.4.6T22 8v10q0 .8-.6 1.4T20 20zm9-9h2V9h-2zm-2-2h2V7h-2zm2 6h2v-2h-2zm-2-2h2v-2h-2zm2 6h2v-2h-2z',
+  help: 'M12 18q.5 0 .9-.4t.4-.9-.4-.9-.9-.4-.9.4-.4.9.4.9.9.4m-1-3.7h2q0-1 .2-1.5t1-1.3q.8-.8 1.2-1.5t.4-1.5q0-1.5-1-2.4T12 5q-1.4 0-2.4.8T8.2 7.9l1.8.7q.2-.7.7-1.1t1.3-.4q.8 0 1.2.4t.5 1q0 .5-.3 1t-.9 1q-1 .9-1.3 1.5t-.2 2.3M12 22a10 10 0 1 1 0-20 10 10 0 0 1 0 20',
+  home: 'M6 19h3v-6h6v6h3v-9l-6-4.5L6 10zm-2 2V9l8-6 8 6v12h-7v-6h-2v6z',
+  image: 'M5 21q-.8 0-1.4-.6T3 19V5q0-.8.6-1.4T5 3h14q.8 0 1.4.6T21 5v14q0 .8-.6 1.4T19 21zm1-4h12l-3.75-5-3 4L9 13z',
+  info: 'M11 17h2v-6h-2zm1-8q.4 0 .7-.3t.3-.7-.3-.7-.7-.3-.7.3-.3.7.3.7.7.3m0 13a10 10 0 1 1 0-20 10 10 0 0 1 0 20',
+  layers: 'M12 21L3 14l1.6-1.25L12 18.5l7.4-5.75L21 14zm0-4.5l-9-7 9-7 9 7z',
+  lock: 'M6 22q-.8 0-1.4-.6T4 20V10q0-.8.6-1.4T6 8h1V6q0-2.1 1.5-3.5T12 1t3.5 1.5T17 6v2h1q.8 0 1.4.6T20 10v10q0 .8-.6 1.4T18 22zm6-5q.8 0 1.4-.6T14 15t-.6-1.4T12 13t-1.4.6T10 15t.6 1.4T12 17M9 8h6V6q0-1.3-.9-2.1T12 3t-2.1.9T9 6z',
+  menu_book:
+    'M12 21.5q-1.5-1.1-3.3-1.8T5 19V6q1.8 0 3.7.7T12 8.5q1.5-1.1 3.3-1.8T19 6v13q-1.9 0-3.7.7T12 21.5M12 19q1.3-.8 2.6-1.3t2.9-.7V8q-1.4.2-2.8.8T12 10.5zM3 4h2v13q1.9 0 3.7.7T12 19.5V21q-1.5-1.1-3.3-1.8T5 18.5H3z',
+  note_add: 'M11 17h2v-3h3v-2h-3V9h-2v3H8v2h3zM6 22q-.8 0-1.4-.6T4 20V4q0-.8.6-1.4T6 2h8l6 6v12q0 .8-.6 1.4T18 22zm7-13V4H6v16h12V9z',
+  pages: 'M4 22V8h4V2h12v14h-6v6zm10-8h4V4h-8v2h4zM6 20h6V10H6z',
+  play: 'M8 19V5l11 7z',
+  redo: 'M9.5 19q-2.3 0-3.9-1.5T4 13.7q0-2.2 1.6-3.7T9.5 8.5h5.6l-3-3L13.5 4l5.5 5.5-5.5 5.5-1.4-1.5 3-3H9.5q-1.5 0-2.5.9t-1 2.3q0 1.4 1 2.3t2.5.9H16v2z',
+  refresh:
+    'M12 20q-3.3 0-5.6-2.3T4 12t2.4-5.7T12 4q1.8 0 3.3.8T18 6.9V4h2v7h-7V9h4.2q-.8-1.4-2.2-2.2T12 6Q9.5 6 7.8 7.8T6 12t1.8 4.2T12 18q1.9 0 3.4-1.1t2.2-2.9h2.1q-.8 2.6-2.9 4.3T12 20',
+  // rotate_right は rotate_left を左右反転して描く (下の MIRRORED を参照)
+  rotate_right: '',
+  rotate_left:
+    'M11 21q-1.6-.2-3-.9t-2.5-1.9l1.4-1.4q.9.9 2 1.4t2.1.7zm2 0v-2q2.4-.3 4-2.1t1.6-4.4q0-2.6-1.8-4.4T12.4 6.3H12l1.9 1.9L12.5 9.6 8.2 5.3 12.5 1l1.4 1.4L12 4.3h.4q3.5 0 5.9 2.4t2.4 5.8q0 3.2-2.1 5.6T13 21m-8.4-4.5q-1.1-1.5-1.5-3.4h2q.2 1.1.7 2t1.3 1.7zM3.1 11q.2-1.7.8-3.1T5.6 5.4L7 6.9q-.8.9-1.3 1.9t-.7 2.2z',
+  save: 'M21 7v12q0 .8-.6 1.4T19 21H5q-.8 0-1.4-.6T3 19V5q0-.8.6-1.4T5 3h12zm-9 11q1.3 0 2.1-.9T15 16t-.9-2.1-2.1-.9-2.1.9T9 16t.9 2.1T12 19M6 10h9V6H6z',
+  settings:
+    'M9.3 22l-.4-3.2q-.3-.1-.6-.3t-.6-.4l-3 1.3-2.7-4.7 2.6-2q0-.2 0-.4t0-.4l-2.6-2 2.7-4.6 3 1.2q.3-.2.6-.4t.6-.3L9.3 2h5.4l.4 3.2q.3.1.6.3t.6.4l3-1.2 2.7 4.6-2.6 2q0 .2 0 .4t0 .4l2.6 2-2.7 4.7-3-1.3q-.3.2-.6.4t-.6.3l-.4 3.2zm2.7-6.5q1.5 0 2.5-1t1-2.5-1-2.5-2.5-1-2.5 1-1 2.5 1 2.5 2.5 1',
+  shield:
+    'M12 22q-3.5-.9-5.75-4T4 11.1V5l8-3 8 3v6.1q0 3.8-2.25 6.9T12 22m0-2.1q2.6-.8 4.3-3.3T18 11.1V6.4l-6-2.25L6 6.4v4.7q0 3.1 1.7 5.5t4.3 3.3',
+  stop: 'M6 18V6h12v12z',
+  undo: 'M8 19v-2h6.1q1.5 0 2.5-.9t1-2.3q0-1.4-1-2.3t-2.5-.9H8.9l3 3L10.5 15 5 9.5 10.5 4l1.4 1.5-3 3h5.2q2.3 0 3.9 1.5T19.6 13.7q0 2.3-1.6 3.8T14.1 19z',
+  upload: 'M11 16V7.8L8.4 10.4 7 9l5-5 5 5-1.4 1.4L13 7.8V16zM5 20v-5h2v3h10v-3h2v5z',
+  warning: 'M1 21L12 2l11 19zm11-3q.4 0 .7-.3t.3-.7-.3-.7-.7-.3-.7.3-.3.7.3.7.7.3m-1-3h2v-5h-2z',
+};
+
+/** 左右反転で描くアイコン。対になる図形のパスを二重に持たないための仕組み。 */
+const MIRRORED: Partial<Record<IconName, IconName>> = {
+  rotate_right: 'rotate_left',
+};
+
+export interface IconProps {
+  name: IconName;
+  size?: number;
+  className?: string;
+  title?: string;
+}
+
+export function Icon({ name, size = 20, className, title }: IconProps) {
+  const mirrorOf = MIRRORED[name];
+  const path = PATHS[mirrorOf ?? name];
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden={title ? undefined : true}
+      role={title ? 'img' : undefined}
+      focusable="false"
+    >
+      {title ? <title>{title}</title> : null}
+      <path d={path} transform={mirrorOf ? 'translate(24 0) scale(-1 1)' : undefined} />
+    </svg>
+  );
+}
