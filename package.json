@@ -1,0 +1,37 @@
+{
+  "name": "tamani-pdf",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "たまにPDF - たまに使うPDFツール",
+  "license": "MIT",
+  "scripts": {
+    "dev": "node scripts/copy-pdfjs-assets.mjs && vite",
+    "prebuild": "node scripts/copy-pdfjs-assets.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "test:e2e": "node scripts/copy-pdfjs-assets.mjs && vite build && node scripts/smoke-test.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/modifiers": "^9.0.0",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "fflate": "^0.8.3",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^6.3.289",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "playwright": "^1.63.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.3.0"
+  }
+}

@@ -1,0 +1,173 @@
+/* ---------- Thumbnail ---------- */
+
+.thumb {
+  display: grid;
+  max-width: 100%;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--shape-sm);
+  background: var(--md-surface-container-highest);
+}
+
+.thumb__img {
+  display: block;
+  max-width: 100%;
+  object-fit: contain;
+  background: #ffffff;
+  box-shadow: var(--elev-1);
+  transition: transform var(--dur-medium) var(--ease-standard);
+}
+
+.thumb__placeholder {
+  width: 60%;
+  height: 60%;
+  border-radius: var(--shape-sm);
+  background: linear-gradient(
+    100deg,
+    var(--md-surface-container-highest) 30%,
+    var(--md-surface-container) 50%,
+    var(--md-surface-container-highest) 70%
+  );
+  background-size: 220% 100%;
+  animation: thumb-shimmer 1.4s linear infinite;
+}
+
+@keyframes thumb-shimmer {
+  to {
+    background-position: -220% 0;
+  }
+}
+
+/* ---------- Page grid ---------- */
+
+.page-grid {
+  display: grid;
+  gap: 14px;
+  /* スマホでは幅が足りず1列になってしまうので、まず2列を確保する */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+@media (min-width: 600px) {
+  .page-grid {
+    grid-template-columns: repeat(auto-fill, minmax(var(--page-card-width, 180px), 1fr));
+  }
+}
+
+.page-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container-low);
+  touch-action: manipulation;
+}
+
+.page-card--dragging {
+  opacity: 0.35;
+}
+
+.page-card--selected {
+  border-color: var(--md-primary);
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+}
+
+.page-card__handle {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: transparent;
+  cursor: grab;
+  border-radius: inherit;
+}
+
+.page-card__handle:active {
+  cursor: grabbing;
+}
+
+.page-card__body {
+  position: relative;
+  pointer-events: none;
+}
+
+.page-card__badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  min-width: 26px;
+  padding: 1px 7px;
+  border-radius: var(--shape-full);
+  background: var(--md-inverse-surface);
+  color: var(--md-inverse-on-surface);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.page-card__check {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 3;
+  width: 22px;
+  height: 22px;
+  accent-color: var(--md-primary);
+  cursor: pointer;
+}
+
+.page-card__meta {
+  width: 100%;
+  font-size: 0.6875rem;
+  color: var(--md-on-surface-variant);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.page-card--selected .page-card__meta {
+  color: inherit;
+}
+
+.page-card__actions {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* ---------- Source list ---------- */
+
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.source-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container-low);
+  font-size: 0.875rem;
+}
+
+.source-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}

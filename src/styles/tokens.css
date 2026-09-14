@@ -1,0 +1,128 @@
+/*
+ * Material Design 3 のカラートークンを自前で定義する。
+ * MUI などのUIライブラリや Google Fonts を読み込まずに M3 の見た目を得ることで、
+ * 外部ドメインへの接続を 0 件に保っている (CSP の default-src 'self' を守るため)。
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- Color: light ---- */
+  --md-primary: #36618e;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #d1e4ff;
+  --md-on-primary-container: #001d36;
+
+  --md-secondary: #535f70;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #d7e3f7;
+  --md-on-secondary-container: #101c2b;
+
+  --md-tertiary: #6b5778;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #f2daff;
+  --md-on-tertiary-container: #251431;
+
+  --md-error: #ba1a1a;
+  --md-on-error: #ffffff;
+  --md-error-container: #ffdad6;
+  --md-on-error-container: #410002;
+
+  --md-success: #2e6b46;
+  --md-success-container: #b8f0cb;
+  --md-on-success-container: #08210f;
+
+  --md-surface: #f8f9ff;
+  --md-on-surface: #191c20;
+  --md-surface-variant: #dfe2eb;
+  --md-on-surface-variant: #43474e;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f2f3fa;
+  --md-surface-container: #eceef4;
+  --md-surface-container-high: #e6e8ee;
+  --md-surface-container-highest: #e1e2e9;
+
+  --md-outline: #73777f;
+  --md-outline-variant: #c3c7cf;
+  --md-inverse-surface: #2e3135;
+  --md-inverse-on-surface: #eff0f7;
+  --md-scrim: rgb(0 0 0 / 32%);
+
+  /* ---- Shape ---- */
+  --shape-xs: 4px;
+  --shape-sm: 8px;
+  --shape-md: 12px;
+  --shape-lg: 16px;
+  --shape-xl: 28px;
+  --shape-full: 999px;
+
+  /* ---- Elevation ---- */
+  --elev-1: 0 1px 2px rgb(0 0 0 / 12%), 0 1px 3px 1px rgb(0 0 0 / 8%);
+  --elev-2: 0 1px 2px rgb(0 0 0 / 12%), 0 2px 6px 2px rgb(0 0 0 / 8%);
+  --elev-3: 0 4px 8px 3px rgb(0 0 0 / 10%), 0 1px 3px rgb(0 0 0 / 12%);
+
+  /* ---- Motion ---- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --dur-short: 120ms;
+  --dur-medium: 220ms;
+
+  /* ---- Type ---- */
+  --font-sans:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN',
+    'Noto Sans JP', 'Yu Gothic UI', Meiryo, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace;
+
+  /* ---- Layout ---- */
+  --nav-rail-width: 88px;
+  --bottom-nav-height: 72px;
+  --app-bar-height: 64px;
+  --content-max: 1280px;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --md-primary: #a0cafd;
+  --md-on-primary: #003258;
+  --md-primary-container: #194975;
+  --md-on-primary-container: #d1e4ff;
+
+  --md-secondary: #bbc7db;
+  --md-on-secondary: #253140;
+  --md-secondary-container: #3b4858;
+  --md-on-secondary-container: #d7e3f7;
+
+  --md-tertiary: #d6bee4;
+  --md-on-tertiary: #3b2948;
+  --md-tertiary-container: #523f5f;
+  --md-on-tertiary-container: #f2daff;
+
+  --md-error: #ffb4ab;
+  --md-on-error: #690005;
+  --md-error-container: #93000a;
+  --md-on-error-container: #ffdad6;
+
+  --md-success: #9cd5ae;
+  --md-success-container: #1a4a2d;
+  --md-on-success-container: #b8f0cb;
+
+  --md-surface: #111418;
+  --md-on-surface: #e1e2e9;
+  --md-surface-variant: #43474e;
+  --md-on-surface-variant: #c3c7cf;
+  --md-surface-container-lowest: #0c0e12;
+  --md-surface-container-low: #191c20;
+  --md-surface-container: #1d2024;
+  --md-surface-container-high: #282a2f;
+  --md-surface-container-highest: #33353a;
+
+  --md-outline: #8d9199;
+  --md-outline-variant: #43474e;
+  --md-inverse-surface: #e1e2e9;
+  --md-inverse-on-surface: #2e3135;
+  --md-scrim: rgb(0 0 0 / 55%);
+
+  --elev-1: 0 1px 2px rgb(0 0 0 / 40%), 0 1px 3px 1px rgb(0 0 0 / 24%);
+  --elev-2: 0 1px 2px rgb(0 0 0 / 40%), 0 2px 6px 2px rgb(0 0 0 / 26%);
+  --elev-3: 0 4px 8px 3px rgb(0 0 0 / 30%), 0 1px 3px rgb(0 0 0 / 40%);
+}

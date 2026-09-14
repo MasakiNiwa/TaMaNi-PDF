@@ -1,0 +1,188 @@
+# たまにPDF — 仕様書 (v0.1)
+
+> たまに使うPDFツール
+
+## 1. コンセプト
+
+仕事やプライベートで **たまにPDFを操作したいだけ** の人のための、ブラウザ完結型ツール。
+「インストール不要」「アカウント不要」「アップロード不要」の3点を守る。
+
+- 対象ユーザー: PDF専用ソフトを常用しない一般ユーザー
+- 対象デバイス: スマートフォン / タブレット / PC (モダンブラウザ)
+- 配信: GitHub Pages (静的ホスティング)
+
+## 2. 最重要方針: PDFはブラウザから出さない
+
+本ツールの根幹は **ユーザーのPDFが絶対にネットワークへ出ないこと**。
+これは「そういう運用をしている」ではなく、**技術的に外部送信の経路が存在しない**状態として担保する。
+
+| 担保方法 | 内容 |
+| --- | --- |
+| サーバ処理なし | バックエンドを持たない。全処理は `pdf.js` / `pdf-lib` によるクライアント処理 |
+| CSP `connect-src 'self'` | 外部への `fetch` / `XHR` / `WebSocket` をブラウザレベルで禁止 |
+| 依存アセットの自己ホスト | フォント・アイコン・CMap・wasm を含め CDN を一切使わない (外部ドメインへの接続が0件) |
+| 解析ツールなし | アクセス解析・エラー収集・広告タグを入れない |
+| 保存先はローカルのみ | 設定とテンプレートは `localStorage`。PDFの中身は永続化しない |
+
+CSP (本番ビルド時に `index.html` へ自動挿入):
+
+```
+default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none';
+frame-ancestors 'none'; form-action 'none';
+script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline';
+img-src 'self' blob: data:; font-src 'self'; media-src 'self' blob:;
+connect-src 'self' blob: data:; worker-src 'self' blob:; manifest-src 'self';
+upgrade-insecure-requests
+```
+
+- `wasm-unsafe-eval` は pdf.js の画像デコーダ (JBIG2 / OpenJPEG / QCMS) のために必要。
+- pdf.js の JavaScript 実行機能 (`enableScripting`) は無効のまま。`isEvalSupported: false` も指定する。
+- GitHub Pages は HTTP ヘッダを設定できないため `<meta http-equiv>` で適用する
+  (`frame-ancestors` は meta では無効なので、埋め込み防止は別途 JS でも確認する)。
+
+## 3. 機能一覧
+
+### 3.1 ページ整理 (`#/organize`)
+
+1つ以上のPDFを読み込み、ページ単位で編集して1つのPDFとして書き出す。
+
+- ページの **並べ替え** (ドラッグ&ドロップ、タッチ対応 / 前後へ1つ移動ボタン)
+- ページの **回転** (90°単位、ページごと / 全体)
+- ページの **削除** / **複製**
+- ページの **追加**
+  - 別のPDFを読み込んで末尾に追加
+  - 画像 (JPEG / PNG) を1ページとして追加
+  - 空白ページを追加 (直前ページと同じサイズ、または A4)
+- 元に戻す / やり直し (Undo / Redo)
+- 出力: 元のページ内容をそのまま保持 (再ラスタライズしない)
+
+内部モデル:
+
+```
+Source (PDFバイト列)  ──┐
+                        ├─> PageRef { sourceId, sourceIndex, rotationDelta }[] ──> 出力PDF
+画像/空白 → 1ページPDF ─┘
+```
+
+画像と空白ページは読み込み時点で「1ページのPDF」に変換して Source として扱うことで、
+ページの扱いを1種類に統一する (拡張しやすさ優先)。
+
+### 3.2 墨消し (`#/redact`)
+
+**方式: 完全ラスタライズ方式**
+
+1. 元のPDFの全ページを画像としてレンダリング (既定 150dpi)
+2. 指定された矩形を黒 or 白で塗りつぶす
+3. 塗りつぶし済み画像だけで新しいPDFを再構築して出力
+
+テキストレイヤーごと破棄するため、「黒い四角を上に置いただけで下のテキストが残る」
+という典型的な墨消し事故が原理的に起こらない。ページ数・ページサイズは維持される。
+
+トレードオフ (ヘルプにも明記):
+
+- 出力PDFは画像PDFになる → 文字検索・テキスト選択はできなくなる
+- ファイルサイズが増減する場合がある
+- 元PDFのしおり・注釈・フォームは失われる
+
+矩形の座標は **ページに対する 0〜1 の正規化座標** で保持する。
+これによりページサイズが違っても同じテンプレートを適用できる。
+
+### 3.3 墨消しテンプレート
+
+同じ発行元・同じ書式のPDFを繰り返し墨消しするための機能。
+
+```ts
+interface RedactTemplate {
+  id: string;
+  name: string;
+  version: 1;
+  rects: TemplateRect[];
+  createdAt: string;   // ISO8601
+  updatedAt: string;
+}
+
+interface TemplateRect {
+  x: number; y: number; w: number; h: number;  // 0..1 正規化座標
+  color: 'black' | 'white';
+  scope:
+    | { type: 'all' }                  // 全ページ
+    | { type: 'index'; index: number } // 先頭から n ページ目 (0-based)
+    | { type: 'fromEnd'; index: number } // 末尾から n ページ目 (0-based)
+    | { type: 'odd' }                  // 奇数ページ
+    | { type: 'even' };                // 偶数ページ
+}
+```
+
+- 保存先: `localStorage` (`tamani-pdf:templates`)
+- JSONファイルとして書き出し / 読み込みが可能 (端末間の持ち運び・バックアップ)
+
+### 3.4 一括墨消し (`#/batch`)
+
+テンプレートを選び、複数のPDFをまとめて処理する。
+
+- 進捗表示 (ファイル単位 / ページ単位)
+- 出力: 個別ダウンロード、または ZIP でまとめてダウンロード (`fflate`)
+- 1ファイルずつ順次処理 (メモリ使用量を抑えるため並列化しない)
+
+### 3.5 設定 (`#/settings`)
+
+- テーマ: システム / ライト / ダーク
+- 墨消し解像度 (dpi): 96 / 150 / 200 / 300
+- 出力画像形式: JPEG (品質指定) / PNG
+- 既定の墨消し色: 黒 / 白
+- テンプレート管理 (名前変更・削除・書き出し・読み込み)
+- 保存データの全削除
+- バージョン情報 / GitHubリポジトリへのリンク
+
+### 3.6 ヘルプ (`#/help`)
+
+使い方、墨消しの仕組みと注意点、プライバシーの説明、FAQ、既知の制限。
+
+## 4. 技術構成
+
+| 項目 | 採用 | 理由 |
+| --- | --- | --- |
+| ビルド | Vite + TypeScript | 定番・高速・型安全 |
+| UI | React 19 | 状態の多い画面を宣言的に書ける |
+| PDF描画 | pdf.js (`pdfjs-dist`) | Mozilla製。ブラウザPDF描画の事実上の標準 |
+| PDF生成/編集 | pdf-lib | 純JS。ページ操作・画像埋め込みに対応 |
+| D&D | dnd-kit | タッチ操作に対応した並べ替え |
+| ZIP | fflate | 小さく高速。依存なし |
+| デザイン | Material Design 3 準拠のCSSトークンを自前実装 | 外部フォント/アイコンCDNを使わずM3の見た目を得るため |
+
+アイコンはすべてインラインSVG (`src/ui/icons.tsx`)。外部リクエストを0件に保つ。
+
+## 5. 画面構成
+
+```
+#/            ホーム (ツール選択)
+#/organize    ページ整理
+#/redact      墨消し
+#/batch       一括墨消し
+#/settings    設定
+#/help        ヘルプ
+```
+
+ハッシュルーティングを使う (GitHub Pages で 404 を出さないため)。
+PC は左のナビゲーションレール、スマホは下部ナビゲーションバーに切り替える。
+
+## 6. ディレクトリ構成
+
+```
+src/
+  core/
+    pdf/        PDFの読み込み・描画・組み立て・墨消し
+    storage/    設定とテンプレートの永続化
+    util/       汎用ユーティリティ
+  ui/           デザインシステム部品 (Button / Dialog / Toast ...)
+  features/
+    home/ organize/ redact/ batch/ settings/ help/
+  app/          ルーティングとレイアウト
+```
+
+## 7. ロードマップ
+
+- **v0.1 (初期版)** — ページ整理 / 墨消し / テンプレート / 一括墨消し / 設定 / ヘルプ
+- v0.2 — 分割・結合の専用画面、ページ番号付与、選択範囲の一括操作の強化
+- v0.3 — 墨消しテンプレートの自動位置合わせ、ページサムネイルの仮想スクロール
+- v0.4 — PWA化 (オフライン対応)、大容量PDF向けのストリーミング処理
