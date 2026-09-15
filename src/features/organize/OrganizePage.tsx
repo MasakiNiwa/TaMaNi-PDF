@@ -26,11 +26,15 @@ import {
   type PageNumberPosition,
 } from '../../core/pdf/pageNumber';
 import { createBlankSource, loadAnyFile } from '../../core/pdf/source';
-import { THUMBNAIL_WIDTH_PX } from '../../core/storage/settings';
+import {
+  THUMBNAIL_SIZES,
+  THUMBNAIL_SIZE_LABEL,
+  THUMBNAIL_WIDTH_PX,
+} from '../../core/storage/settings';
 import { saveBytes } from '../../core/util/download';
 import { baseName, formatBytes } from '../../core/util/format';
 import { AppBarAction } from '../../ui/AppBarAction';
-import { Button } from '../../ui/Button';
+import { Button, IconButton } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { FileDrop } from '../../ui/FileDrop';
 import { Icon } from '../../ui/Icon';
@@ -43,7 +47,7 @@ import { useWindowedGrid } from './useWindowedGrid';
 export function OrganizePage() {
   const deck = usePageDeck();
   const snackbar = useSnackbar();
-  const { settings } = useSettings();
+  const { settings, update: updateSettings } = useSettings();
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -54,6 +58,21 @@ export function OrganizePage() {
   const [draft, setDraft] = useState<PageNumberOptions>(DEFAULT_PAGE_NUMBER);
 
   const boxWidth = THUMBNAIL_WIDTH_PX[settings.thumbnailSize];
+
+  /**
+   * サムネイルの大きさを、この画面のまま変える。
+   *
+   * 中身を確かめたいときに設定画面まで往復するのは手間なので、
+   * ツールバーから1段ずつ動かせるようにする (変えた大きさは設定として残る)。
+   */
+  const stepThumbnail = useCallback(
+    (direction: 1 | -1) => {
+      const at = THUMBNAIL_SIZES.indexOf(settings.thumbnailSize);
+      const next = THUMBNAIL_SIZES[Math.min(THUMBNAIL_SIZES.length - 1, Math.max(0, at + direction))];
+      if (next !== settings.thumbnailSize) updateSettings({ thumbnailSize: next });
+    },
+    [settings.thumbnailSize, updateSettings],
+  );
 
   // ページ数が多いときは、見えている行だけを描く
   const gridRef = useRef<HTMLDivElement>(null);
@@ -148,6 +167,15 @@ export function OrganizePage() {
     clearSelection();
   }, [deck, selected, clearSelection]);
 
+  /** 選んだページだけを残す (いらないページを1枚ずつ消さずに済むように) */
+  const keepSelected = useCallback(() => {
+    if (selected.size === 0 || selected.size === deck.pages.length) return;
+    const removed = deck.pages.length - selected.size;
+    deck.keepOnly(selected);
+    clearSelection();
+    snackbar.show(`${removed}ページを削除しました。戻すで元に戻せます。`);
+  }, [deck, selected, clearSelection, snackbar]);
+
   const exportPdf = useCallback(async () => {
     if (deck.pages.length === 0) return;
     setBusy(true);
@@ -168,8 +196,9 @@ export function OrganizePage() {
   useUnloadGuard(hasPages);
   const numberedCount = Math.max(0, deck.pages.length - (draft.skipFirst ? 1 : 0));
   const lastNumber = draft.startAt + Math.max(0, numberedCount - 1);
-  // 選択なしで全ページに効くのは意外なので、ボタン自体に書いておく
-  const rotateLabel = selected.size > 0 ? `選択した${selected.size}ページを` : '全ページを';
+  // 選択なしで全ページに効くのは意外なので、回転ボタンの手前に対象を出す。
+  // ボタンの文字に混ぜるとスマホで折り返しが増えるため、ひとつの札にまとめる。
+  const rotateTarget = selected.size > 0 ? `選択した${selected.size}ページ` : '全ページ';
   const totalBytes = useMemo(
     () => [...deck.sources.values()].reduce((sum, source) => sum + source.byteLength, 0),
     [deck.sources],
@@ -234,13 +263,14 @@ export function OrganizePage() {
       ) : (
         <>
           <div className="toolbar">
+            <span className="chip">回転の対象: {rotateTarget}</span>
             <Button
               small
               variant="outlined"
               icon="rotate_left"
               onClick={() => deck.rotatePages(selected.size > 0 ? selected : null, -90)}
             >
-              {rotateLabel}左に回転
+              左に回転
             </Button>
             <Button
               small
@@ -248,7 +278,7 @@ export function OrganizePage() {
               icon="rotate_right"
               onClick={() => deck.rotatePages(selected.size > 0 ? selected : null, 90)}
             >
-              {rotateLabel}右に回転
+              右に回転
             </Button>
             <span className="toolbar__divider" />
 
@@ -268,14 +298,41 @@ export function OrganizePage() {
             </Button>
             <span className="toolbar__divider" />
 
+            <span className="thumb-size" role="group" aria-label="一覧の表示サイズ">
+              <IconButton
+                icon="zoom_out"
+                label="サムネイルを小さく"
+                small
+                disabled={settings.thumbnailSize === THUMBNAIL_SIZES[0]}
+                onClick={() => stepThumbnail(-1)}
+              />
+              <span className="thumb-size__label">{THUMBNAIL_SIZE_LABEL[settings.thumbnailSize]}</span>
+              <IconButton
+                icon="zoom_in"
+                label="サムネイルを大きく"
+                small
+                disabled={settings.thumbnailSize === THUMBNAIL_SIZES[THUMBNAIL_SIZES.length - 1]}
+                onClick={() => stepThumbnail(1)}
+              />
+            </span>
+            <span className="toolbar__divider" />
+
             {selected.size > 0 ? (
               <>
-                <span className="chip">{selected.size}ページ選択中</span>
                 <Button small variant="outlined" icon="file_copy" onClick={() => deck.duplicatePages(selected)}>
                   複製
                 </Button>
                 <Button small variant="danger" icon="delete" onClick={deleteSelected}>
                   削除
+                </Button>
+                <Button
+                  small
+                  variant="danger"
+                  icon="filter_list"
+                  disabled={selected.size === deck.pages.length}
+                  onClick={keepSelected}
+                >
+                  選択以外を削除
                 </Button>
                 <Button small onClick={clearSelection}>
                   選択解除

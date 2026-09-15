@@ -230,3 +230,18 @@
 .number-preview--top-center { align-items: flex-start; justify-content: center; }
 .number-preview--top-right { align-items: flex-start; justify-content: flex-end; }
 .number-preview--top-left { align-items: flex-start; justify-content: flex-start; }
+
+/* ---------- サムネイルの大きさ ---------- */
+
+.thumb-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.thumb-size__label {
+  min-width: 2.4em;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--md-on-surface-variant);
+}

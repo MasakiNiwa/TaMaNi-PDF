@@ -69,6 +69,23 @@ export function usePageDeck() {
     [commit],
   );
 
+  /**
+   * 選んだページだけを残す。
+   *
+   * 何十ページもあるPDFから数ページを抜き出したいとき、
+   * いらないページを1枚ずつ消していくのは現実的でないため。
+   */
+  const keepOnly = useCallback(
+    (ids: ReadonlySet<string>) => {
+      commit((current) => {
+        const kept = current.filter((page) => ids.has(page.id));
+        // 1ページも残らない指定は受け付けない (空のPDFは作れない)
+        return kept.length > 0 ? kept : current;
+      });
+    },
+    [commit],
+  );
+
   const duplicatePages = useCallback(
     (ids: ReadonlySet<string>) => {
       commit((current) =>
@@ -120,6 +137,7 @@ export function usePageDeck() {
     reset,
     rotatePages,
     deletePages,
+    keepOnly,
     duplicatePages,
     movePage,
     reorder,

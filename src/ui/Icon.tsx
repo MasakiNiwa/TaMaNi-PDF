@@ -18,6 +18,7 @@ export type IconName =
   | 'edit'
   | 'error'
   | 'file_copy'
+  | 'filter_list'
   | 'fit_screen'
   | 'folder_zip'
   | 'help'
@@ -62,6 +63,7 @@ const PATHS: Record<IconName, string> = {
   edit: 'M5 19h1.4l9-9L14 8.6l-9 9zM3 21v-4.2L16.2 3.6q.3-.3.7-.4t.8 0q.4.1.7.4l1.9 2q.3.3.4.7t0 .8q-.1.4-.4.7L7.2 21z',
   error: 'M12 17q.4 0 .7-.3t.3-.7-.3-.7-.7-.3-.7.3-.3.7.3.7.7.3m-1-4h2V7h-2zm1 9a10 10 0 1 1 0-20 10 10 0 0 1 0 20',
   file_copy: 'M9 18q-.8 0-1.4-.6T7 16V4q0-.8.6-1.4T9 2h9q.8 0 1.4.6T20 4v12q0 .8-.6 1.4T18 18zm-4 4q-.8 0-1.4-.6T3 20V6h2v14h11v2z',
+  filter_list: 'M10 18v-2h4v2zm-4-5v-2h12v2zM3 8V6h18v2z',
   fit_screen: 'M7 14H5v5h5v-2H7zM5 10h2V7h3V5H5zm12 7h-3v2h5v-5h-2zM14 5v2h3v3h2V5z',
   folder_zip:
     'M4 20q-.8 0-1.4-.6T2 18V6q0-.8.6-1.4T4 4h6l2 2h8q.8 0 1.4.6T22 8v10q0 .8-.6 1.4T20 20zm9-9h2V9h-2zm-2-2h2V7h-2zm2 6h2v-2h-2zm-2-2h2v-2h-2zm2 6h2v-2h-2z',
