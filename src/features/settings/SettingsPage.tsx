@@ -2,12 +2,12 @@ import { useCallback, useRef, useState } from 'react';
 import { useSettings } from '../../app/SettingsContext';
 import { useTemplates } from '../../app/TemplatesContext';
 import { APP_NAME, APP_VERSION, BUILD_DATE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../../app/version';
-import { DPI_CHOICES } from '../../core/storage/settings';
+import {
+  DPI_CHOICES,
+  THUMBNAIL_SIZES,
+  THUMBNAIL_SIZE_LABEL,
+} from '../../core/storage/settings';
 import { buildExportFile, parseImportFile } from '../../core/storage/templates';
-
-/** 端末に保存できなかったときに出す案内 (複数の場所で使う) */
-const STORAGE_WARNING =
-  'この端末に保存できませんでした (保存容量がいっぱいか、ブラウザの設定で保存できない状態です)。この画面を閉じると消えるので、必要ならJSONに書き出してください。';
 import { clearAll, isStorageAvailable } from '../../core/storage/store';
 import { saveText } from '../../core/util/download';
 import { formatDateTime } from '../../core/util/format';
@@ -16,6 +16,10 @@ import { Dialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
 import { Banner, Collapsible, SettingRow } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
+
+/** 端末に保存できなかったときに出す案内 (複数の場所で使う) */
+const STORAGE_WARNING =
+  'この端末に保存できませんでした (保存容量がいっぱいか、ブラウザの設定で保存できない状態です)。この画面を閉じると消えるので、必要ならJSONに書き出してください。';
 
 export function SettingsPage() {
   const { settings, update, reset } = useSettings();
@@ -97,7 +101,10 @@ export function SettingsPage() {
             </select>
           </SettingRow>
 
-          <SettingRow title="サムネイルの大きさ" description="ページ整理の一覧に表示する大きさです。">
+          <SettingRow
+            title="サムネイルの大きさ"
+            description="ページ整理の一覧に表示する大きさです。整理画面のツールバーからも変えられます。"
+          >
             <select
               className="select"
               value={settings.thumbnailSize}
@@ -106,9 +113,11 @@ export function SettingsPage() {
               }
               aria-label="サムネイルの大きさ"
             >
-              <option value="small">小</option>
-              <option value="medium">中</option>
-              <option value="large">大</option>
+              {THUMBNAIL_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {THUMBNAIL_SIZE_LABEL[size]}
+                </option>
+              ))}
             </select>
           </SettingRow>
         </div>

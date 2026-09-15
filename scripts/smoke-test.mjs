@@ -535,6 +535,76 @@ console.log('\n[2c] ページ数の多いPDF');
   await big.close();
 }
 
+console.log('\n[2d] 一覧の大きさと、選択以外の削除');
+{
+  // 中身を確かめたいときに、設定画面まで往復せず大きさを変えられること。
+  // 大量ページから数ページを抜き出す操作が、1枚ずつの削除にならないこと。
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'pick.pdf',
+    mimeType: 'application/pdf',
+    buffer: await makeSamplePdf(6),
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(800);
+
+  const thumbWidth = async () =>
+    (await page.locator('.page-card:visible').first().locator('.thumb').boundingBox()).width;
+  const smallWidth = await thumbWidth();
+  await page.getByRole('button', { name: 'サムネイルを大きく' }).click();
+  await page.waitForTimeout(500);
+  const biggerWidth = await thumbWidth();
+  check('ツールバーからサムネイルを大きくできる', biggerWidth > smallWidth + 10, `${Math.round(smallWidth)} -> ${Math.round(biggerWidth)}`);
+
+  await page.getByRole('button', { name: 'サムネイルを小さく' }).click();
+  await page.waitForTimeout(500);
+  const backWidth = await thumbWidth();
+  check('小さくも戻せる', Math.abs(backWidth - smallWidth) < 2, `${Math.round(backWidth)}`);
+
+  // 変えた大きさは設定として残る
+  await page.getByRole('button', { name: 'サムネイルを大きく' }).click();
+  await page.waitForTimeout(400);
+  await page.goto(base + '#/settings');
+  await page.waitForTimeout(400);
+  const sizeSelect = page.locator('select[aria-label="サムネイルの大きさ"]');
+  check('設定に「特大」まで並ぶ', (await sizeSelect.locator('option').count()) === 4);
+  const savedSize = await sizeSelect.inputValue();
+  check('変えた大きさが設定に残る', savedSize === 'large', savedSize);
+  await page.goto(base + '#/organize');
+  await page.waitForTimeout(600);
+
+  // 2ページだけ選んで、それ以外を消す
+  const checks = page.locator('.page-card:visible .page-card__check');
+  await checks.nth(1).check();
+  await checks.nth(3).check();
+  const beforeSrc = await page.locator('.page-card:visible img').evaluateAll((images) => images.map((img) => img.src));
+  await page.getByRole('button', { name: '選択以外を削除' }).click();
+  await page.waitForTimeout(600);
+  const remain = await page.locator('.page-card:visible').count();
+  check('選択した2ページだけが残る', remain === 2, `${remain}ページ`);
+  const afterSrc = await page.locator('.page-card:visible img').evaluateAll((images) => images.map((img) => img.src));
+  check(
+    '残ったのは選んだページ',
+    afterSrc.length === 2 && afterSrc[0] === beforeSrc[1] && afterSrc[1] === beforeSrc[3],
+  );
+
+  await page.getByRole('button', { name: '元に戻す' }).click();
+  await page.waitForTimeout(500);
+  check('選択以外の削除も元に戻せる', (await page.locator('.page-card:visible').count()) === 6);
+
+  // すべて選んでいるときは押せない (消すものがない)
+  await page.getByRole('button', { name: 'すべて選択' }).click();
+  await page.waitForTimeout(300);
+  check(
+    'すべて選択中は「選択以外を削除」を押せない',
+    await page.getByRole('button', { name: '選択以外を削除' }).isDisabled(),
+  );
+  await page.getByRole('button', { name: '選択解除' }).click();
+  await page.waitForTimeout(200);
+}
+
 console.log('\n[3] 墨消し');
 await page.goto(base + '#/redact');
 await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });

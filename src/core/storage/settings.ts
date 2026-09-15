@@ -10,8 +10,8 @@ export interface Settings {
   redactFormat: 'jpeg' | 'png';
   jpegQuality: number;
   defaultRedactColor: RedactColor;
-  /** ページ一覧のサムネイルの大きさ */
-  thumbnailSize: 'small' | 'medium' | 'large';
+  /** ページ一覧のサムネイルの大きさ (整理画面でその場でも変えられる) */
+  thumbnailSize: 'small' | 'medium' | 'large' | 'xlarge';
   /** ページ整理の出力ファイル名につける接尾辞 */
   organizeSuffix: string;
   /** 墨消しの出力ファイル名につける接尾辞 */
@@ -48,7 +48,7 @@ function coerce(raw: unknown): Settings {
   if (typeof raw !== 'object' || raw === null) return { ...DEFAULT_SETTINGS };
   const value = raw as Partial<Settings>;
   const themes: ThemeMode[] = ['system', 'light', 'dark'];
-  const sizes: Settings['thumbnailSize'][] = ['small', 'medium', 'large'];
+  const sizes: Settings['thumbnailSize'][] = ['small', 'medium', 'large', 'xlarge'];
   return {
     theme: themes.includes(value.theme as ThemeMode) ? (value.theme as ThemeMode) : DEFAULT_SETTINGS.theme,
     redactDpi: DPI_CHOICES.includes(value.redactDpi as (typeof DPI_CHOICES)[number])
@@ -82,4 +82,16 @@ export const THUMBNAIL_WIDTH_PX: Record<Settings['thumbnailSize'], number> = {
   small: 120,
   medium: 168,
   large: 232,
+  // 中身を読んで確かめたいとき用。1行に並ぶ枚数は減る。
+  xlarge: 340,
+};
+
+/** 小さいほうから並べた一覧 (画面でひとつずつ動かすのに使う) */
+export const THUMBNAIL_SIZES: Settings['thumbnailSize'][] = ['small', 'medium', 'large', 'xlarge'];
+
+export const THUMBNAIL_SIZE_LABEL: Record<Settings['thumbnailSize'], string> = {
+  small: '小',
+  medium: '中',
+  large: '大',
+  xlarge: '特大',
 };
