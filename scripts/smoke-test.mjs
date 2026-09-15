@@ -605,6 +605,108 @@ console.log('\n[2d] 一覧の大きさと、選択以外の削除');
   await page.waitForTimeout(200);
 }
 
+console.log('\n[2e] ページの拡大表示');
+{
+  // 一覧のサムネイルは、スマホではカードの枠に阻まれて大きくできない。
+  // 中身を読みたいときは全画面で開く。
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'zoom.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1200);
+
+  await page.locator('.page-card__open').first().click();
+  await page.locator('.preview-overlay__canvas').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(2000);
+  check('サムネイルを押すと拡大表示が開く', await page.locator('.preview-overlay').isVisible());
+
+  const shown = await page.evaluate(() => {
+    const canvas = document.querySelector('.preview-overlay__canvas');
+    const frame = document.querySelector('.preview-overlay__frame').getBoundingClientRect();
+    const box = canvas.getBoundingClientRect();
+    return { pixels: canvas.width, height: box.height, frameHeight: frame.height };
+  });
+  check('大きく描き直している', shown.pixels >= 1000, `${shown.pixels}px幅`);
+  check('画面の高さをおおむね使う', shown.height > shown.frameHeight * 0.7, `${Math.round(shown.height)} / ${Math.round(shown.frameHeight)}`);
+
+  const title = () => page.locator('.preview-overlay__title').innerText();
+  check('何ページ目かが出る', (await title()).startsWith('1 / 3'), await title());
+  await page.getByRole('button', { name: '次のページ' }).click();
+  await page.waitForTimeout(1500);
+  check('次のページへ送れる', (await title()).startsWith('2 / 3'), await title());
+
+  const transform = () =>
+    page.locator('.preview-overlay__inner').evaluate((element) => getComputedStyle(element).transform);
+  const beforeZoom = await transform();
+  await page.locator('.preview-overlay__bar').getByRole('button', { name: '拡大' }).click();
+  await page.waitForTimeout(400);
+  check('拡大できる', (await transform()) !== beforeZoom, `${beforeZoom} -> ${await transform()}`);
+  check('倍率が表示される', (await page.locator('.preview-overlay__zoom').innerText()) !== '100%');
+
+  await page.getByRole('button', { name: '閉じる' }).click();
+  await page.waitForTimeout(300);
+  check('閉じられる', (await page.locator('.preview-overlay').count()) === 0);
+}
+
+console.log('\n[2f] 追加するページを選ぶ');
+{
+  // 後から足すPDFは、必要なページだけ入れたいことがある。
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'first.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(800);
+  check('最初の読み込みは確認なしで全ページ', (await page.locator('.page-card:visible').count()) === 3);
+
+  // 2件目からは選ばせる
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'second.pdf',
+    mimeType: 'application/pdf',
+    buffer: await makeSamplePdf(4),
+  });
+  await page.locator('.add-grid').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  check('追加時にページを選ぶ画面が出る', (await page.locator('.add-grid__item').count()) === 4);
+
+  await page.locator('.add-grid__item').nth(0).click();
+  await page.locator('.add-grid__item').nth(2).click();
+  await page.getByRole('button', { name: /選んだ2ページを追加/ }).click();
+  await page.waitForTimeout(800);
+  check('選んだページだけが足される', (await page.locator('.page-card:visible').count()) === 5, `${await page.locator('.page-card:visible').count()}ページ`);
+
+  // 設定で「すべて追加」にすると確認なしになる
+  await page.goto(base + '#/settings');
+  await page.waitForTimeout(400);
+  await page.getByLabel('PDFを追加するとき').selectOption('all');
+  await page.waitForTimeout(300);
+  await page.goto(base + '#/organize');
+  await page.waitForTimeout(600);
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'third.pdf',
+    mimeType: 'application/pdf',
+    buffer: await makeSamplePdf(2),
+  });
+  await page.waitForTimeout(1500);
+  check('設定を変えると確認なしで全ページ入る', (await page.locator('.add-grid').count()) === 0);
+  check('全ページぶん増える', (await page.locator('.page-card:visible').count()) === 7, `${await page.locator('.page-card:visible').count()}ページ`);
+
+  // 既定に戻す
+  await page.goto(base + '#/settings');
+  await page.waitForTimeout(300);
+  await page.getByLabel('PDFを追加するとき').selectOption('choose');
+  await page.waitForTimeout(300);
+}
+
 console.log('\n[3] 墨消し');
 await page.goto(base + '#/redact');
 await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
@@ -1248,6 +1350,68 @@ await touchPage.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_0
     Math.abs(rectAfter.y - rectBefore.y) > 25,
     `${Math.round(rectBefore.y)} -> ${Math.round(rectAfter.y)}`,
   );
+
+  // スマホでの拡大表示: 指でつまんで大きくできること、
+  // 一覧の指定を「大」にすると実際に1列で大きく出ること。
+  await touchPage.goto(base + '#/organize');
+  await touchPage.reload({ waitUntil: 'load' });
+  await touchPage.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await touchPage.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'phone.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await touchPage.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await touchPage.waitForTimeout(1200);
+
+  const columnsInFirstRow = () =>
+    touchPage.locator('.page-card:visible').evaluateAll((cards) => {
+      if (cards.length === 0) return 0;
+      const top = cards[0].offsetTop;
+      return cards.filter((card) => card.offsetTop === top).length;
+    });
+  check('スマホの一覧は既定で2列', (await columnsInFirstRow()) === 2, `${await columnsInFirstRow()}列`);
+
+  await touchPage.getByRole('button', { name: 'サムネイルを大きく' }).click();
+  await touchPage.waitForTimeout(600);
+  check('大きくすると1列になって実際に広がる', (await columnsInFirstRow()) === 1, `${await columnsInFirstRow()}列`);
+  await touchPage.getByRole('button', { name: 'サムネイルを小さく' }).click();
+  await touchPage.waitForTimeout(400);
+
+  await touchPage.locator('.page-card__open').first().click();
+  await touchPage.locator('.preview-overlay__canvas').waitFor({ timeout: 20_000 });
+  await touchPage.waitForTimeout(2000);
+  const previewTransform = () =>
+    touchPage.locator('.preview-overlay__inner').evaluate((element) => {
+      const matrix = getComputedStyle(element).transform;
+      const parts = matrix.match(/matrix\(([^)]+)\)/);
+      return parts ? Number(parts[1].split(',')[0]) : 1;
+    });
+  check('スマホでも拡大表示を開ける', await touchPage.locator('.preview-overlay').isVisible());
+  const frameBox = await touchPage.locator('.preview-overlay__frame').boundingBox();
+  const cx = frameBox.x + frameBox.width / 2;
+  const cy = frameBox.y + frameBox.height / 2;
+  const spreadFingers = async (spread, type = 'touchMove') => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type,
+      touchPoints: [
+        { x: cx - spread, y: cy, id: 1 },
+        { x: cx + spread, y: cy, id: 2 },
+      ],
+    });
+  };
+  await spreadFingers(40, 'touchStart');
+  for (const spread of [55, 75, 95, 115]) {
+    await spreadFingers(spread);
+    await touchPage.waitForTimeout(40);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await touchPage.waitForTimeout(600);
+  const zoomed = await previewTransform();
+  check('スマホ: 2本指で拡大できる', zoomed > 1.4, `倍率 ${zoomed.toFixed(2)}`);
+
+  await touchPage.getByRole('button', { name: '閉じる' }).click();
+  await touchPage.waitForTimeout(300);
 
   await touchContext.close();
 }

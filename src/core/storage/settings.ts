@@ -12,6 +12,13 @@ export interface Settings {
   defaultRedactColor: RedactColor;
   /** ページ一覧のサムネイルの大きさ (整理画面でその場でも変えられる) */
   thumbnailSize: 'small' | 'medium' | 'large' | 'xlarge';
+  /**
+   * PDFを追加するときに、入れるページを選ぶか。
+   *
+   * 'choose' は追加前に中身を見せて選ばせる。'all' は確認なしで全ページ入れる。
+   * すでにページがある状態での追加にだけ効く (最初の読み込みは常に全ページ)。
+   */
+  addPagesMode: 'choose' | 'all';
   /** ページ整理の出力ファイル名につける接尾辞 */
   organizeSuffix: string;
   /** 墨消しの出力ファイル名につける接尾辞 */
@@ -37,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   jpegQuality: 0.82,
   defaultRedactColor: 'black',
   thumbnailSize: 'medium',
+  addPagesMode: 'choose',
   organizeSuffix: '_edited',
   redactSuffix: '_redacted',
   templateAutoAlign: false,
@@ -63,6 +71,7 @@ function coerce(raw: unknown): Settings {
     thumbnailSize: sizes.includes(value.thumbnailSize as Settings['thumbnailSize'])
       ? (value.thumbnailSize as Settings['thumbnailSize'])
       : DEFAULT_SETTINGS.thumbnailSize,
+    addPagesMode: value.addPagesMode === 'all' ? 'all' : DEFAULT_SETTINGS.addPagesMode,
     organizeSuffix: typeof value.organizeSuffix === 'string' ? value.organizeSuffix : DEFAULT_SETTINGS.organizeSuffix,
     redactSuffix: typeof value.redactSuffix === 'string' ? value.redactSuffix : DEFAULT_SETTINGS.redactSuffix,
     templateAutoAlign:
