@@ -27,7 +27,7 @@ export interface TemplateRect extends NormalizedRect {
  * 自動位置合わせの基準。
  *
  * テンプレートを作ったときのページを 96px 幅まで縮めた白黒画像で、
- * 文字は読み取れない粗さ。ずれの推定にだけ使う。
+ * ずれの推定にだけ使う。本文が読める大きさではないが、内容の一部が判別できることはある。
  */
 export interface TemplateAnchor {
   /** 基準にしたページ (0始まり) */
@@ -86,6 +86,35 @@ export function scopeLabel(scope: PageScope): string {
     default:
       return '不明';
   }
+}
+
+/**
+ * そのPDFにテンプレートを当てたとき、実際に塗られる範囲の数。
+ *
+ * 「3ページ目のみ」の指定を1ページのPDFに当てるとゼロになる。
+ * 何も隠れないまま画像化されたPDFができてしまうのを防ぐために使う。
+ */
+export function countAppliedRects(template: RedactTemplate, pageCount: number): number {
+  let total = 0;
+  for (let index = 0; index < pageCount; index += 1) {
+    total += template.rects.filter((rect) => scopeMatches(rect.scope, index, pageCount)).length;
+  }
+  return total;
+}
+
+/** どのページにも当たらない指定 (ページ数が足りないときなど) */
+export function unmatchedScopes(template: RedactTemplate, pageCount: number): PageScope[] {
+  const unmatched: PageScope[] = [];
+  for (const rect of template.rects) {
+    let hit = false;
+    for (let index = 0; index < pageCount && !hit; index += 1) {
+      if (scopeMatches(rect.scope, index, pageCount)) hit = true;
+    }
+    if (!hit && !unmatched.some((scope) => scopeLabel(scope) === scopeLabel(rect.scope))) {
+      unmatched.push(rect.scope);
+    }
+  }
+  return unmatched;
 }
 
 /** テンプレートから、指定ページに適用すべき矩形だけを取り出す */
@@ -160,15 +189,39 @@ function coerceRect(raw: unknown): TemplateRect | null {
   };
 }
 
-/** 外部から来たJSONを検証して読み込む。壊れた項目は捨てる。 */
-export function coerceTemplate(raw: unknown): RedactTemplate | null {
-  if (typeof raw !== 'object' || raw === null) return null;
+export type TemplateProblem =
+  /** テンプレートとして読めない形 */
+  | 'invalid'
+  /** 一部の範囲が壊れていた (墨消しでは黙って減らしてはいけない) */
+  | 'droppedRects'
+  /** このアプリより新しい形式 */
+  | 'unsupportedVersion';
+
+export interface CoerceResult {
+  template: RedactTemplate | null;
+  problem?: TemplateProblem;
+  /** 壊れていて読めなかった範囲の数 */
+  dropped: number;
+}
+
+/**
+ * 外部から来たJSONを検証して読み込む。
+ *
+ * 壊れた範囲があったことは呼び出し側へ必ず伝える。
+ * 墨消しでは「読み込めたつもりで、隠す範囲が減っている」のがいちばん危ない。
+ */
+export function coerceTemplateResult(raw: unknown): CoerceResult {
+  if (typeof raw !== 'object' || raw === null) return { template: null, problem: 'invalid', dropped: 0 };
   const value = raw as Partial<RedactTemplate>;
-  if (!Array.isArray(value.rects)) return null;
+  if (!Array.isArray(value.rects)) return { template: null, problem: 'invalid', dropped: 0 };
+  if (typeof value.version === 'number' && value.version > TEMPLATE_VERSION) {
+    return { template: null, problem: 'unsupportedVersion', dropped: 0 };
+  }
   const rects = value.rects.map(coerceRect).filter((rect): rect is TemplateRect => rect !== null);
-  if (rects.length === 0) return null;
+  const dropped = value.rects.length - rects.length;
+  if (rects.length === 0) return { template: null, problem: 'invalid', dropped };
   const now = new Date().toISOString();
-  return {
+  const template: RedactTemplate = {
     id: typeof value.id === 'string' ? value.id : createId('tpl'),
     name: typeof value.name === 'string' && value.name.trim() ? value.name.trim().slice(0, 80) : '名称未設定',
     version: TEMPLATE_VERSION,
@@ -179,6 +232,12 @@ export function coerceTemplate(raw: unknown): RedactTemplate | null {
       typeof value.sourcePageCount === 'number' && value.sourcePageCount > 0 ? value.sourcePageCount : undefined,
     anchor: coerceAnchor(value.anchor),
   };
+  return { template, problem: dropped > 0 ? 'droppedRects' : undefined, dropped };
+}
+
+/** 端末に保存してあるものを読み戻すとき用 (壊れた項目は捨てる) */
+export function coerceTemplate(raw: unknown): RedactTemplate | null {
+  return coerceTemplateResult(raw).template;
 }
 
 export function loadTemplates(): RedactTemplate[] {
@@ -209,8 +268,19 @@ export function buildExportFile(templates: RedactTemplate[]): TemplateExportFile
   };
 }
 
-/** 書き出したJSONを読み戻す。単体テンプレート・配列・書き出しファイルのどれでも受ける。 */
-export function parseImportFile(text: string): RedactTemplate[] {
+export interface ImportResult {
+  templates: RedactTemplate[];
+  /** 読み込まなかったテンプレートの数と理由 */
+  skipped: { problem: TemplateProblem; dropped: number }[];
+}
+
+/**
+ * 書き出したJSONを読み戻す。単体テンプレート・配列・書き出しファイルのどれでも受ける。
+ *
+ * 範囲が欠けたテンプレートは読み込まない。隠すつもりの場所が減ったまま
+ * 使われるより、読み込まずに知らせるほうが安全なため。
+ */
+export function parseImportFile(text: string): ImportResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -222,7 +292,24 @@ export function parseImportFile(text: string): RedactTemplate[] {
     : typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as TemplateExportFile).templates)
       ? (parsed as TemplateExportFile).templates
       : [parsed];
-  const templates = candidates.map(coerceTemplate).filter((tpl): tpl is RedactTemplate => tpl !== null);
-  if (templates.length === 0) throw new Error('読み込めるテンプレートが含まれていませんでした。');
-  return templates;
+  const results = candidates.map(coerceTemplateResult);
+  const templates = results
+    .filter((result) => result.template !== null && !result.problem)
+    .map((result) => result.template as RedactTemplate);
+  const skipped = results
+    .filter((result) => result.problem !== undefined)
+    .map((result) => ({ problem: result.problem as TemplateProblem, dropped: result.dropped }));
+  if (templates.length === 0) {
+    const broken = skipped.find((item) => item.problem === 'droppedRects');
+    if (broken) {
+      throw new Error(
+        `範囲が壊れているため読み込みませんでした (${broken.dropped}個の範囲が読めません)。書き出し元でもう一度書き出してください。`,
+      );
+    }
+    if (skipped.some((item) => item.problem === 'unsupportedVersion')) {
+      throw new Error('このファイルは新しい形式です。アプリを最新にしてから読み込んでください。');
+    }
+    throw new Error('読み込めるテンプレートが含まれていませんでした。');
+  }
+  return { templates, skipped };
 }

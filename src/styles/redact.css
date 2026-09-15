@@ -414,3 +414,16 @@
   position: absolute;
   outline: 1.5px solid var(--md-primary);
 }
+
+/* ページ番号を直接入れて移動する */
+.redact-pager__input {
+  width: 3.2em;
+  min-height: 28px;
+  padding: 0 4px;
+  border: 1px solid var(--md-outline);
+  border-radius: var(--shape-sm);
+  background: var(--md-surface-container-lowest);
+  color: var(--md-on-surface);
+  font: inherit;
+  text-align: center;
+}

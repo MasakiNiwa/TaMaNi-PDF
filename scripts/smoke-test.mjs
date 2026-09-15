@@ -160,6 +160,22 @@ async function pointIn(page, locator, fx = 0.5, fy = 0.5) {
   return (await visibleBand(page, locator)).at(fx, fy);
 }
 
+/**
+ * 確認のダイアログが出ていたら、そのボタンを押して先へ進む。
+ *
+ * 墨消し画面では、範囲を指定したまま別のPDFへ切り替えると確認が出る
+ * (指定した範囲が消えるため)。
+ */
+async function confirmIfAsked(target, name) {
+  // ダイアログの中だけを見る。名前での照合は部分一致なので、
+  // 画面側の「別のPDFに切り替える」まで拾ってしまうため。
+  const button = target.locator('.dialog').getByRole('button', { name, exact: true });
+  if (await button.isVisible().catch(() => false)) {
+    await button.click();
+    await target.waitForTimeout(200);
+  }
+}
+
 const failures = [];
 function check(name, condition, detail = '') {
   if (condition) {
@@ -286,18 +302,18 @@ console.log('\n[1b] 説明の折りたたみ');
 console.log('\n[2] ページ整理');
 const samplePdf = await makeSamplePdf(3);
 await page.goto(base + '#/organize');
-await page.locator('.dropzone').waitFor({ timeout: 20_000 });
-await page.locator('input[type=file]').first().setInputFiles({
+await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+await page.locator('input[type=file]:visible').first().setInputFiles({
   name: 'sample.pdf',
   mimeType: 'application/pdf',
   buffer: samplePdf,
 });
-await page.locator('.page-card').first().waitFor({ timeout: 20_000 });
-check('3ページが読み込まれる', (await page.locator('.page-card').count()) === 3);
+await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+check('3ページが読み込まれる', (await page.locator('.page-card:visible').count()) === 3);
 
 // 1ページ目を削除して2ページにする
-await page.locator('.page-card').first().getByRole('button', { name: '削除' }).click();
-check('削除後は2ページ', (await page.locator('.page-card').count()) === 2);
+await page.locator('.page-card:visible').first().getByRole('button', { name: '削除' }).click();
+check('削除後は2ページ', (await page.locator('.page-card:visible').count()) === 2);
 
 // 全ページを右に回転
 await page.getByRole('button', { name: '右に回転' }).first().click();
@@ -318,12 +334,12 @@ if (downloads[0]) {
 // alt は「何枚目か」なので並べ替えでは変わらない。中身が動いたかはサムネイル画像の
 // URL の並びで見る (URL は元ページごとに固有)。
 const thumbOrder = () =>
-  page.locator('.page-card img').evaluateAll((images) => images.map((image) => image.getAttribute('src')));
+  page.locator('.page-card img:visible').evaluateAll((images) => images.map((image) => image.getAttribute('src')));
 
 const orderBefore = await thumbOrder();
 if (orderBefore.length >= 2) {
-  const from = await page.locator('.page-card__drag').first().boundingBox();
-  const to = await page.locator('.page-card').nth(1).boundingBox();
+  const from = await page.locator('.page-card__drag:visible').first().boundingBox();
+  const to = await page.locator('.page-card:visible').nth(1).boundingBox();
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   // 一度ずらしてからゆっくり動かす (dnd-kit は少し動かさないとドラッグを開始しない)
@@ -345,9 +361,9 @@ if (orderBefore.length >= 2) {
 // Undo/Redo (削除と回転の2手を戻す)
 await page.getByRole('button', { name: '元に戻す' }).click();
 await page.getByRole('button', { name: '元に戻す' }).click();
-check('元に戻すで3ページへ戻る', (await page.locator('.page-card').count()) === 3);
+check('元に戻すで3ページへ戻る', (await page.locator('.page-card:visible').count()) === 3);
 await page.getByRole('button', { name: 'やり直す' }).click();
-check('やり直すで2ページへ戻る', (await page.locator('.page-card').count()) === 2);
+check('やり直すで2ページへ戻る', (await page.locator('.page-card:visible').count()) === 2);
 
 downloads.length = 0;
 await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
@@ -367,12 +383,13 @@ console.log('\n[2b] ページ番号');
   const hasInkIn = async (buffer, area) => {
     await page.goto(base + '#/redact');
     await page.reload({ waitUntil: 'load' });
-    await page.locator('input[type=file]').first().setInputFiles({
+    await page.locator('input[type=file]:visible').first().setInputFiles({
       name: 'numbered.pdf',
       mimeType: 'application/pdf',
       buffer,
     });
-    await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+    await confirmIfAsked(page, '切り替える');
+await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
     await page.waitForTimeout(2500);
     return page.evaluate((box) => {
       const canvas = document.querySelector('.redact-stage__canvas');
@@ -395,13 +412,13 @@ console.log('\n[2b] ページ番号');
   const openOrganize = async () => {
     await page.goto(base + '#/organize');
     await page.reload({ waitUntil: 'load' });
-    await page.locator('.dropzone').waitFor({ timeout: 20_000 });
-    await page.locator('input[type=file]').first().setInputFiles({
+    await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+    await page.locator('input[type=file]:visible').first().setInputFiles({
       name: 'numbering.pdf',
       mimeType: 'application/pdf',
       buffer: samplePdf,
     });
-    await page.locator('.page-card').first().waitFor({ timeout: 20_000 });
+    await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
   };
 
   // 番号を入れずに書き出したときは、その帯は白いまま
@@ -478,27 +495,27 @@ console.log('\n[2c] ページ数の多いPDF');
   });
 
   await bigPage.goto(base + '#/organize');
-  await bigPage.locator('.dropzone').waitFor({ timeout: 30_000 });
-  await bigPage.locator('input[type=file]').first().setInputFiles({
+  await bigPage.locator('.dropzone:visible').waitFor({ timeout: 30_000 });
+  await bigPage.locator('input[type=file]:visible').first().setInputFiles({
     name: 'big.pdf',
     mimeType: 'application/pdf',
     buffer: bigPdf,
   });
-  await bigPage.locator('.page-card').first().waitFor({ timeout: 30_000 });
+  await bigPage.locator('.page-card:visible').first().waitFor({ timeout: 30_000 });
   await bigPage.waitForTimeout(1500);
 
   const summary = await bigPage.locator('.text-small.muted').first().innerText();
   check('150ページとして読み込める', summary.includes('全150ページ'), summary);
 
-  const drawn = await bigPage.locator('.page-card').count();
+  const drawn = await bigPage.locator('.page-card:visible').count();
   check('一覧は見えているぶんだけ描く', drawn > 0 && drawn < 80, `描かれた枚数 ${drawn}`);
 
   // 下まで送ると、最後のページが描かれる
   await bigPage.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await bigPage.waitForTimeout(800);
-  const lastBadge = await bigPage.locator('.page-card__badge').last().innerText();
+  const lastBadge = await bigPage.locator('.page-card__badge:visible').last().innerText();
   check('下まで送ると最後のページが出る', lastBadge === '150', lastBadge);
-  const drawnAtBottom = await bigPage.locator('.page-card').count();
+  const drawnAtBottom = await bigPage.locator('.page-card:visible').count();
   check('下まで送っても描く枚数は増えない', drawnAtBottom < 80, `描かれた枚数 ${drawnAtBottom}`);
 
   // 描いていないページも書き出しに含まれる
@@ -520,29 +537,30 @@ console.log('\n[2c] ページ数の多いPDF');
 
 console.log('\n[3] 墨消し');
 await page.goto(base + '#/redact');
-await page.locator('.dropzone').waitFor({ timeout: 20_000 });
-await page.locator('input[type=file]').first().setInputFiles({
+await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+await page.locator('input[type=file]:visible').first().setInputFiles({
   name: 'secret.pdf',
   mimeType: 'application/pdf',
   buffer: samplePdf,
 });
-await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+await confirmIfAsked(page, '切り替える');
+await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
 await page.waitForTimeout(1500);
 
 // 「全ページ」に適用する範囲を、SECRET-TOP-LEFT の上にドラッグで描く
 await page.locator('#scope-select').selectOption('all');
-const overlay = page.locator('.redact-viewport').first();
+const overlay = page.locator('.redact-viewport:visible').first();
 const box = await overlay.boundingBox();
 await page.mouse.move(box.x + box.width * 0.05, box.y + box.height * 0.13);
 await page.mouse.down();
 await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.2, { steps: 12 });
 await page.mouse.up();
-check('範囲が1件追加される', (await page.locator('.redact-rect').count()) >= 1);
+check('範囲が1件追加される', (await page.locator('.redact-rect:visible').count()) >= 1);
 
 // 追加した直後は選択状態になり、右下のつまみが出る
-check('追加した範囲につまみが出る', (await page.locator('.redact-handle').count()) === 1);
+check('追加した範囲につまみが出る', (await page.locator('.redact-handle:visible').count()) === 1);
 
-const rectBox = () => page.locator('.redact-rect').first().boundingBox();
+const rectBox = () => page.locator('.redact-rect:visible').first().boundingBox();
 const before = await rectBox();
 
 // 範囲をドラッグして動かす
@@ -555,7 +573,7 @@ check('範囲をドラッグして動かせる', Math.abs(moved.y - before.y) > 
 check('動かしても大きさは変わらない', Math.abs(moved.height - before.height) < 3);
 
 // 右下のつまみを引いて大きくする
-const handle = await page.locator('.redact-handle').boundingBox();
+const handle = await page.locator('.redact-handle:visible').boundingBox();
 await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
 await page.mouse.down();
 await page.mouse.move(handle.x + handle.width / 2 + 60, handle.y + handle.height / 2 + 30, { steps: 10 });
@@ -569,7 +587,7 @@ check(
 
 // 拡大表示: ページの中身が拡大され、上下左右に動かせること
 const stageTransform = () =>
-  page.locator('.redact-stage').evaluate((element) => getComputedStyle(element).transform);
+  page.locator('.redact-stage:visible').evaluate((element) => getComputedStyle(element).transform);
 const beforeZoom = await stageTransform();
 await page.getByRole('button', { name: '拡大' }).click();
 await page.waitForTimeout(1200);
@@ -577,10 +595,10 @@ const afterZoom = await stageTransform();
 check('拡大すると表示が大きくなる', beforeZoom !== afterZoom, `${beforeZoom} -> ${afterZoom}`);
 
 // 表示領域の高さは変わらない (ページ全体が伸びてしまわないこと)
-const viewportBox = await page.locator('.redact-viewport').boundingBox();
+const viewportBox = await page.locator('.redact-viewport:visible').boundingBox();
 await page.getByRole('button', { name: '拡大' }).click();
 await page.waitForTimeout(1000);
-const viewportBox2 = await page.locator('.redact-viewport').boundingBox();
+const viewportBox2 = await page.locator('.redact-viewport:visible').boundingBox();
 check(
   '拡大しても表示領域の大きさは変わらない',
   Math.abs(viewportBox2.height - viewportBox.height) < 2,
@@ -595,7 +613,7 @@ const readView = async () => {
   const values = parts[1].split(',').map((v) => Number(v.trim()));
   return { x: values[4], y: values[5] };
 };
-const wheelPoint = await pointIn(page, page.locator('.redact-viewport'), 0.5, 0.5);
+const wheelPoint = await pointIn(page, page.locator('.redact-viewport:visible'), 0.5, 0.5);
 await page.mouse.move(wheelPoint.x, wheelPoint.y);
 const viewBefore = await readView();
 await page.mouse.wheel(0, 120);
@@ -613,9 +631,9 @@ await page.getByRole('button', { name: '幅に合わせる' }).click();
 await page.waitForTimeout(800);
 
 // テストの残りに影響しないよう、範囲を元の位置へ引き直す
-await page.locator('.redact-rect').first().click();
+await page.locator('.redact-rect:visible').first().click();
 await page.getByRole('button', { name: 'この範囲を削除' }).click();
-const box3 = await page.locator('.redact-viewport').first().boundingBox();
+const box3 = await page.locator('.redact-viewport:visible').first().boundingBox();
 await page.mouse.move(box3.x + box3.width * 0.05, box3.y + box3.height * 0.13);
 await page.mouse.down();
 await page.mouse.move(box3.x + box3.width * 0.55, box3.y + box3.height * 0.2, { steps: 12 });
@@ -642,13 +660,14 @@ if (downloads[0]) {
 if (downloads[0]) {
   const redactedBuffer = downloads[0].body;
   await page.goto(base + '#/redact');
-  await page.locator('.dropzone').waitFor({ timeout: 20_000 });
-  await page.locator('input[type=file]').first().setInputFiles({
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
     name: 'redacted.pdf',
     mimeType: 'application/pdf',
     buffer: redactedBuffer,
   });
-  await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+  await confirmIfAsked(page, '切り替える');
+await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
   await page.waitForTimeout(2500);
 
   const sample = await page.evaluate(() => {
@@ -676,7 +695,7 @@ console.log('\n[3b] 墨消しの取り消しとクリア');
 {
   // 直前の手順で別のPDFを読み込み直しているため、ここで範囲を引き直してから履歴を試す。
   // 表示領域は画面の外へはみ出していることがあるので、見えている位置を選んで操作する。
-  const band = await visibleBand(page, page.locator('.redact-viewport').first());
+  const band = await visibleBand(page, page.locator('.redact-viewport:visible').first());
   for (const [fromY, toY] of [
     [0.12, 0.22],
     [0.4, 0.5],
@@ -689,32 +708,33 @@ console.log('\n[3b] 墨消しの取り消しとクリア');
     await page.mouse.up();
     await page.waitForTimeout(250);
   }
-  const countBefore = await page.locator('.rect-list__item').count();
+  const countBefore = await page.locator('.rect-list__item:visible').count();
   check('範囲を2件引ける', countBefore === 2, String(countBefore));
   await page.getByRole('button', { name: '元に戻す' }).click();
   await page.waitForTimeout(300);
-  const countUndo = await page.locator('.rect-list__item').count();
+  const countUndo = await page.locator('.rect-list__item:visible').count();
   check('墨消しでも元に戻せる', countUndo === countBefore - 1, `${countBefore} -> ${countUndo}`);
   await page.getByRole('button', { name: 'やり直す' }).click();
   await page.waitForTimeout(300);
-  check('墨消しでもやり直せる', (await page.locator('.rect-list__item').count()) === countBefore);
+  check('墨消しでもやり直せる', (await page.locator('.rect-list__item:visible').count()) === countBefore);
 }
 
 await page.getByRole('button', { name: 'クリアして最初に戻る' }).click();
 await page.getByRole('button', { name: 'クリアする' }).click();
 await page.waitForTimeout(600);
-check('クリアで最初の画面に戻る', (await page.locator('.redact-viewport').count()) === 0);
+check('クリアで最初の画面に戻る', (await page.locator('.redact-viewport:visible').count()) === 0);
 
 // テンプレート保存のため、もう一度読み込んで範囲を引く
-await page.locator('input[type=file]').first().setInputFiles({
+await page.locator('input[type=file]:visible').first().setInputFiles({
   name: 'secret.pdf',
   mimeType: 'application/pdf',
   buffer: samplePdf,
 });
-await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+await confirmIfAsked(page, '切り替える');
+await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
 await page.waitForTimeout(1500);
 await page.locator('#scope-select').selectOption('all');
-const box4 = await page.locator('.redact-viewport').first().boundingBox();
+const box4 = await page.locator('.redact-viewport:visible').first().boundingBox();
 await page.mouse.move(box4.x + box4.width * 0.05, box4.y + box4.height * 0.13);
 await page.mouse.down();
 await page.mouse.move(box4.x + box4.width * 0.55, box4.y + box4.height * 0.2, { steps: 12 });
@@ -730,20 +750,20 @@ check('保存後にテンプレートのダイアログが閉じる', (await pag
 await page.waitForTimeout(500);
 
 await page.goto(base + '#/batch');
-await page.locator('.dropzone').waitFor({ timeout: 20_000 });
+await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
 const templateSelect = page.getByLabel('適用するテンプレート');
 check('保存したテンプレートが選べる', (await templateSelect.locator('option').count()) === 2);
 await templateSelect.selectOption({ index: 1 });
-await page.locator('input[type=file]').first().setInputFiles([
+await page.locator('input[type=file]:visible').first().setInputFiles([
   { name: 'batch-a.pdf', mimeType: 'application/pdf', buffer: samplePdf },
   { name: 'batch-b.pdf', mimeType: 'application/pdf', buffer: samplePdf },
 ]);
-check('2件が一覧に並ぶ', (await page.locator('.batch-item').count()) === 2);
+check('2件が一覧に並ぶ', (await page.locator('.batch-item:visible').count()) === 2);
 
 downloads.length = 0;
 await page.getByRole('button', { name: '一括で墨消しする' }).click();
-await page.locator('.batch-item--done').nth(1).waitFor({ timeout: 60_000 });
-check('2件とも完了する', (await page.locator('.batch-item--done').count()) === 2);
+await page.locator('.batch-item--done:visible').nth(1).waitFor({ timeout: 60_000 });
+check('2件とも完了する', (await page.locator('.batch-item--done:visible').count()) === 2);
 
 // 書き出す前に、テンプレートの当たり位置を確かめられること
 await page.getByRole('button', { name: '1件目でプレビュー' }).click();
@@ -780,13 +800,14 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   // 出力PDFを開いて、黒い帯が縦のどのあたりに出るかを測る
   const blackBandTop = async (buffer, name) => {
     await page.goto(base + '#/redact');
-    await page.locator('.dropzone').waitFor({ timeout: 20_000 });
-    await page.locator('input[type=file]').first().setInputFiles({
+    await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+    await page.locator('input[type=file]:visible').first().setInputFiles({
       name,
       mimeType: 'application/pdf',
       buffer,
     });
-    await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+    await confirmIfAsked(page, '切り替える');
+await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
     await page.waitForTimeout(2500);
     return page.evaluate(() => {
       const canvas = document.querySelector('.redact-stage__canvas');
@@ -806,7 +827,7 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   const openBatch = async () => {
     await page.goto(base + '#/batch');
     await page.reload({ waitUntil: 'load' });
-    await page.locator('.dropzone').waitFor({ timeout: 20_000 });
+    await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
   };
 
   // 一覧の中から名前で選ぶ (テンプレートが増えても取り違えないように)
@@ -822,10 +843,10 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   const runBatch = async (files) => {
     await openBatch();
     await selectTemplate('位置合わせ用');
-    await page.locator('input[type=file]').first().setInputFiles(files);
+    await page.locator('input[type=file]:visible').first().setInputFiles(files);
     downloads.length = 0;
     await page.getByRole('button', { name: '一括で墨消しする' }).click();
-    await page.locator('.batch-item--done').nth(files.length - 1).waitFor({ timeout: 60_000 });
+    await page.locator('.batch-item--done:visible').nth(files.length - 1).waitFor({ timeout: 60_000 });
   };
 
   // 既定はオフ。初めて使う人が、何も選ばないまま画像を保存してしまわないようにしている。
@@ -839,15 +860,16 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   await page.waitForTimeout(300);
   await page.goto(base + '#/redact');
   await page.reload({ waitUntil: 'load' });
-  await page.locator('input[type=file]').first().setInputFiles({
+  await page.locator('input[type=file]:visible').first().setInputFiles({
     name: 'align-src.pdf',
     mimeType: 'application/pdf',
     buffer: samplePdf,
   });
-  await page.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+  await confirmIfAsked(page, '切り替える');
+await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
   await page.waitForTimeout(1500);
   await page.locator('#scope-select').selectOption('all');
-  const alignBox = await page.locator('.redact-viewport').first().boundingBox();
+  const alignBox = await page.locator('.redact-viewport:visible').first().boundingBox();
   await page.mouse.move(alignBox.x + alignBox.width * 0.05, alignBox.y + alignBox.height * 0.13);
   await page.mouse.down();
   await page.mouse.move(alignBox.x + alignBox.width * 0.55, alignBox.y + alignBox.height * 0.2, { steps: 12 });
@@ -865,17 +887,17 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
 
   // まずはずれていないPDF。ここが基準の位置になる。
   await runBatch([{ name: 'align-base.pdf', mimeType: 'application/pdf', buffer: samplePdf }]);
-  const baseStatus = await page.locator('.batch-item__status').first().innerText();
+  const baseStatus = await page.locator('.batch-item__status:visible').first().innerText();
   check('位置合わせの結果が一覧に出る', baseStatus.includes('補正') || baseStatus.includes('ずれなし'), baseStatus);
-  await page.locator('.batch-item').first().getByRole('button', { name: /を保存/ }).click();
+  await page.locator('.batch-item:visible').first().getByRole('button', { name: /を保存/ }).click();
   await page.waitForTimeout(2500);
   const baseOut = downloads.find((d) => d.name.endsWith('.pdf'));
 
   // 次に中身がずれたPDF
   await runBatch([{ name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted }]);
-  const shiftedStatus = await page.locator('.batch-item__status').first().innerText();
+  const shiftedStatus = await page.locator('.batch-item__status:visible').first().innerText();
   check('ずれたPDFでは補正が働く', shiftedStatus.includes('補正'), shiftedStatus);
-  await page.locator('.batch-item').first().getByRole('button', { name: /を保存/ }).click();
+  await page.locator('.batch-item:visible').first().getByRole('button', { name: /を保存/ }).click();
   await page.waitForTimeout(2500);
   const shiftedOut = downloads.find((d) => d.name.endsWith('.pdf'));
 
@@ -897,7 +919,7 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   // プレビューにも同じ補正がかかり、一致度が表示されること
   await openBatch();
   await selectTemplate('位置合わせ用');
-  await page.locator('input[type=file]').first().setInputFiles([
+  await page.locator('input[type=file]:visible').first().setInputFiles([
     { name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted },
   ]);
   await page.getByRole('button', { name: '1件目でプレビュー' }).click();
@@ -919,7 +941,7 @@ console.log('\n[4b] テンプレートの自動位置合わせ');
   await page.waitForTimeout(300);
   await openBatch();
   await selectTemplate('位置合わせ用');
-  await page.locator('input[type=file]').first().setInputFiles([
+  await page.locator('input[type=file]:visible').first().setInputFiles([
     { name: 'align-shifted.pdf', mimeType: 'application/pdf', buffer: shifted },
   ]);
   await page.getByRole('button', { name: '1件目でプレビュー' }).click();
@@ -1002,21 +1024,21 @@ console.log('\n[5] スマホのタッチ操作');
   };
 
   await touchPage.goto(base + '#/organize');
-  await touchPage.locator('.dropzone').waitFor({ timeout: 20_000 });
-  await touchPage.locator('input[type=file]').first().setInputFiles({
+  await touchPage.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await touchPage.locator('input[type=file]:visible').first().setInputFiles({
     name: 'sample.pdf',
     mimeType: 'application/pdf',
     buffer: samplePdf,
   });
-  await touchPage.locator('.page-card').first().waitFor({ timeout: 20_000 });
+  await touchPage.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
   await touchPage.waitForTimeout(2500);
 
   const touchThumbOrder = () =>
-    touchPage.locator('.page-card img').evaluateAll((images) => images.map((i) => i.getAttribute('src')));
+    touchPage.locator('.page-card img:visible').evaluateAll((images) => images.map((i) => i.getAttribute('src')));
 
   // (1) つまみをなぞると並べ替えられる (長押しは不要)
   const beforeOrder = await touchThumbOrder();
-  await touchDrag(await center(touchPage.locator('.page-card__drag').first()), await center(touchPage.locator('.page-card').nth(1)));
+  await touchDrag(await center(touchPage.locator('.page-card__drag:visible').first()), await center(touchPage.locator('.page-card:visible').nth(1)));
   await touchPage.waitForTimeout(500);
   const afterOrder = await touchThumbOrder();
   check(
@@ -1028,7 +1050,7 @@ console.log('\n[5] スマホのタッチ操作');
   // (2) つまみ以外を指でなぞったときは、並べ替えではなく画面のスクロールになる
   const orderBeforeScroll = await touchThumbOrder();
   const scrollBefore = await touchPage.evaluate(() => window.scrollY);
-  const cardCenter = await center(touchPage.locator('.page-card').first());
+  const cardCenter = await center(touchPage.locator('.page-card:visible').first());
   await touchDrag(cardCenter, { x: cardCenter.x, y: cardCenter.y - 260 }, { holdMs: 0, steps: 10 });
   await touchPage.waitForTimeout(400);
   const scrollAfter = await touchPage.evaluate(() => window.scrollY);
@@ -1040,15 +1062,16 @@ console.log('\n[5] スマホのタッチ操作');
 
   // (3) 墨消し: 指のドラッグで範囲を追加できる
   await touchPage.goto(base + '#/redact');
-  await touchPage.locator('.dropzone').waitFor({ timeout: 20_000 });
-  await touchPage.locator('input[type=file]').first().setInputFiles({
+  await touchPage.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await touchPage.locator('input[type=file]:visible').first().setInputFiles({
     name: 'secret.pdf',
     mimeType: 'application/pdf',
     buffer: samplePdf,
   });
-  await touchPage.locator('.redact-stage__canvas').waitFor({ timeout: 20_000 });
+  await confirmIfAsked(touchPage, '切り替える');
+await touchPage.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
   await touchPage.waitForTimeout(2000);
-  const viewportLocator = touchPage.locator('.redact-viewport').first();
+  const viewportLocator = touchPage.locator('.redact-viewport:visible').first();
   const drawFrom = await center(viewportLocator, 0.15);
   const drawTo = await center(viewportLocator, 0.25);
   await touchDrag(
@@ -1057,13 +1080,13 @@ console.log('\n[5] スマホのタッチ操作');
     { holdMs: 0 },
   );
   await touchPage.waitForTimeout(300);
-  check('スマホ: 指のドラッグで範囲を追加できる', (await touchPage.locator('.redact-rect').count()) >= 1);
+  check('スマホ: 指のドラッグで範囲を追加できる', (await touchPage.locator('.redact-rect:visible').count()) >= 1);
 
   // (4) 2本指でつまむと拡大でき、そのまま動かすと表示位置が変わる
   {
-    const pinchAt = await center(touchPage.locator('.redact-viewport'), 0.5);
+    const pinchAt = await center(touchPage.locator('.redact-viewport:visible'), 0.5);
     const readScale = () =>
-      touchPage.locator('.redact-stage').evaluate((element) => {
+      touchPage.locator('.redact-stage:visible').evaluate((element) => {
         const m = getComputedStyle(element).transform.match(/matrix\(([^)]+)\)/);
         return m ? Number(m[1].split(',')[0]) : 1;
       });
@@ -1142,14 +1165,14 @@ console.log('\n[5] スマホのタッチ操作');
   }
 
   // (5) 指で範囲を動かせる
-  const rectBefore = await touchPage.locator('.redact-rect').first().boundingBox();
+  const rectBefore = await touchPage.locator('.redact-rect:visible').first().boundingBox();
   await touchDrag(
     { x: rectBefore.x + rectBefore.width / 2, y: rectBefore.y + rectBefore.height / 2 },
     { x: rectBefore.x + rectBefore.width / 2, y: rectBefore.y + rectBefore.height / 2 + 50 },
     { holdMs: 0 },
   );
   await touchPage.waitForTimeout(300);
-  const rectAfter = await touchPage.locator('.redact-rect').first().boundingBox();
+  const rectAfter = await touchPage.locator('.redact-rect:visible').first().boundingBox();
   check(
     'スマホ: 指で範囲を動かせる',
     Math.abs(rectAfter.y - rectBefore.y) > 25,
@@ -1168,13 +1191,14 @@ console.log('\n[5b] 横長の画面');
     const wide = await context.newPage();
     wide.setDefaultTimeout(20_000);
     await wide.goto(base + '#/redact');
-    await wide.locator('.dropzone').waitFor({ timeout: 20_000 });
-    await wide.locator('input[type=file]').first().setInputFiles({
+    await wide.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+    await wide.locator('input[type=file]:visible').first().setInputFiles({
       name: 'secret.pdf',
       mimeType: 'application/pdf',
       buffer: samplePdf,
     });
-    await wide.locator('.redact-viewport').waitFor({ timeout: 20_000 });
+    await confirmIfAsked(wide, '切り替える');
+await wide.locator('.redact-viewport:visible').waitFor({ timeout: 20_000 });
     await wide.waitForTimeout(2500);
 
     const boxes = await wide.evaluate(() => {
@@ -1254,6 +1278,274 @@ console.log('\n[5b] 横長の画面');
     'PC横長: 左のナビゲーションレールが出る',
     pc.rail && !pc.bottomNav,
     `rail ${pc.rail} / bottom ${pc.bottomNav}`,
+  );
+}
+
+console.log('\n[5c] 作業内容を失わないこと');
+{
+  // 画面を移っただけで読み込んだPDFと編集内容が消えないこと。
+  // 「使い方を確認したい」「画質を変えたい」で作業が消えるのがいちばん困る。
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'keep.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  const pagesBefore = await page.locator('.page-card:visible').count();
+
+  await page.goto(base + '#/help');
+  await page.waitForTimeout(400);
+  check(
+    '隠れている画面のボタンはアプリバーに出ない',
+    (await page.locator('.app-bar__actions button').count()) === 0,
+    `${await page.locator('.app-bar__actions button').count()}個`,
+  );
+
+  await page.goto(base + '#/organize');
+  await page.waitForTimeout(600);
+  const pagesAfter = await page.locator('.page-card:visible').count();
+  check('ヘルプを見て戻ってもページが残っている', pagesAfter === pagesBefore, `${pagesBefore} -> ${pagesAfter}`);
+
+  // 墨消しの範囲も同じ
+  await page.goto(base + '#/redact');
+  await page.waitForTimeout(600);
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'keep-redact.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await confirmIfAsked(page, '切り替える');
+  await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const keepBox = await page.locator('.redact-viewport:visible').first().boundingBox();
+  await page.mouse.move(keepBox.x + keepBox.width * 0.1, keepBox.y + keepBox.height * 0.15);
+  await page.mouse.down();
+  await page.mouse.move(keepBox.x + keepBox.width * 0.5, keepBox.y + keepBox.height * 0.22, { steps: 10 });
+  await page.mouse.up();
+  const rectsBefore = await page.locator('.redact-rect:visible').count();
+
+  await page.goto(base + '#/settings');
+  await page.waitForTimeout(400);
+  await page.goto(base + '#/redact');
+  await page.waitForTimeout(800);
+  const rectsAfter = await page.locator('.redact-rect:visible').count();
+  check('設定を見て戻っても範囲が残っている', rectsAfter === rectsBefore && rectsAfter > 0, `${rectsBefore} -> ${rectsAfter}`);
+
+  // 範囲があるまま別のPDFへ切り替えるときは確認する
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'other.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.waitForTimeout(500);
+  check('別のPDFへ切り替える前に確認が出る', (await page.locator('.dialog').count()) === 1);
+  await page.locator('.dialog').getByRole('button', { name: 'キャンセル', exact: true }).click();
+  await page.waitForTimeout(300);
+  check(
+    'キャンセルすると範囲が残る',
+    (await page.locator('.redact-rect:visible').count()) === rectsBefore,
+  );
+
+  // 後片付け (次の検証に影響しないよう空にする)
+  await page.getByRole('button', { name: 'クリア' }).click();
+  await page.getByRole('button', { name: 'クリアする' }).click();
+  await page.waitForTimeout(400);
+}
+
+console.log('\n[5d] 一括処理の結果管理');
+{
+  // 「3ページ目のみ」のように、当たるページがない指定を検出できること。
+  // 何も隠れていないのに完了扱いになるのが、この機能でいちばん危ない。
+  const onePage = await makeSamplePdf(1);
+
+  // 偶数ページだけのテンプレートを作る (1ページのPDFには当たらない)
+  await page.goto(base + '#/redact');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'even.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await confirmIfAsked(page, '切り替える');
+  await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  await page.locator('#scope-select').selectOption('even');
+  const evenBox = await page.locator('.redact-viewport:visible').first().boundingBox();
+  await page.mouse.move(evenBox.x + evenBox.width * 0.1, evenBox.y + evenBox.height * 0.14);
+  await page.mouse.down();
+  await page.mouse.move(evenBox.x + evenBox.width * 0.6, evenBox.y + evenBox.height * 0.2, { steps: 10 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'テンプレート' }).click();
+  await page.locator('#template-name').fill('偶数ページ用');
+  await page.getByRole('button', { name: '保存する' }).click();
+  await page.waitForTimeout(800);
+
+  await page.goto(base + '#/batch');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  const pickTemplate = async (name) => {
+    const select = page.getByLabel('適用するテンプレート');
+    const value = await select.evaluate((element, needle) => {
+      const option = [...element.options].find((item) => item.textContent.includes(needle));
+      return option ? option.value : '';
+    }, name);
+    await select.selectOption(value);
+  };
+  await pickTemplate('偶数ページ用');
+  await page.locator('input[type=file]:visible').first().setInputFiles([
+    { name: 'one-page.pdf', mimeType: 'application/pdf', buffer: onePage },
+  ]);
+  await page.getByRole('button', { name: '一括で墨消しする' }).click();
+  await page.waitForTimeout(6000);
+  const status = await page.locator('.batch-item__status:visible').first().innerText();
+  check('当たる範囲がないPDFは失敗として止める', status.includes('当たる範囲がありません'), status);
+  check(
+    '何も隠れていないPDFは書き出せない',
+    (await page.locator('.batch-item:visible').first().getByRole('button', { name: /を保存/ }).count()) === 0,
+  );
+
+  // テンプレートを変えたら、前の条件で作った結果は残さない
+  await page.locator('input[type=file]:visible').first().setInputFiles([
+    { name: 'three-page.pdf', mimeType: 'application/pdf', buffer: samplePdf },
+  ]);
+  await pickTemplate('位置合わせ用');
+  await page.getByRole('button', { name: '一括で墨消しする' }).click();
+  await page.locator('.batch-item--done:visible').first().waitFor({ timeout: 60_000 });
+  const doneCount = await page.locator('.batch-item--done:visible').count();
+  check('テンプレートを選び直せば処理できる', doneCount >= 1, `${doneCount}件`);
+
+  await pickTemplate('偶数ページ用');
+  await page.waitForTimeout(500);
+  check(
+    'テンプレートを変えると前の結果を残さない',
+    (await page.locator('.batch-item--done:visible').count()) === 0,
+  );
+  const staleText = await page.locator('.batch-item__status:visible').first().innerText();
+  check('やり直しが必要だと伝える', staleText.includes('もう一度実行'), staleText);
+}
+
+console.log('\n[5e] 入力・トリミング・壊れたテンプレート');
+{
+  // 入力のたびに焦点が飛ぶと、数字を続けて打てない
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'focus.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await page.getByRole('button', { name: /ページ番号/ }).click();
+  await page.locator('.number-grid').waitFor({ timeout: 10_000 });
+  await page.locator('#number-start').click();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('12');
+  await page.waitForTimeout(300);
+  const focused = await page.evaluate(() => document.activeElement?.id ?? '');
+  check('入力しても焦点が入力欄に残る', focused === 'number-start', focused || '(なし)');
+  check('打った数字がそのまま入る', (await page.locator('#number-start').inputValue()) === '12', await page.locator('#number-start').inputValue());
+  await page.locator('.dialog').getByRole('button', { name: 'キャンセル', exact: true }).click();
+  await page.waitForTimeout(300);
+  check('ページ番号のダイアログをキャンセルで閉じられる', (await page.locator('.dialog').count()) === 0);
+
+  // トリミング済みPDF: 紙全体ではなく、表示される範囲を見て番号を置く
+  const cropped = await (async () => {
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const first = doc.addPage([595.28, 841.89]);
+    first.drawText('CROPPED-PAGE', { x: 140, y: 620, size: 18, font, color: rgb(0, 0, 0) });
+    // 表示されるのは左下(100,400)から 300x300 の範囲だけ
+    first.setCropBox(100, 400, 300, 300);
+    return Buffer.from(await doc.save());
+  })();
+
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'cropped.pdf',
+    mimeType: 'application/pdf',
+    buffer: cropped,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await page.getByRole('button', { name: /ページ番号/ }).click();
+  await page.locator('.number-grid').waitFor({ timeout: 10_000 });
+  await page.getByRole('button', { name: '下 中央' }).click();
+  await page.getByRole('button', { name: 'この設定で入れる' }).click();
+  await page.waitForTimeout(300);
+  downloads.length = 0;
+  await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+  await page.waitForTimeout(3500);
+  const croppedOut = downloads.find((d) => d.name.endsWith('.pdf'));
+  check('トリミング済みPDFを書き出せる', Boolean(croppedOut));
+  if (croppedOut) {
+    await page.goto(base + '#/redact');
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+    await page.locator('input[type=file]:visible').first().setInputFiles({
+      name: 'cropped-out.pdf',
+      mimeType: 'application/pdf',
+      buffer: croppedOut.body,
+    });
+    await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(2500);
+    const found = await page.evaluate(() => {
+      const canvas = document.querySelector('.redact-stage__canvas');
+      const ctx = canvas.getContext('2d');
+      // 表示されている範囲の、下側中央あたり
+      const x = Math.round(canvas.width * 0.35);
+      const y = Math.round(canvas.height * 0.85);
+      const w = Math.round(canvas.width * 0.3);
+      const h = Math.round(canvas.height * 0.13);
+      const data = ctx.getImageData(x, y, w, h).data;
+      for (let i = 0; i < data.length; i += 4) {
+        if (data[i] < 140 && data[i + 1] < 140 && data[i + 2] < 140) return true;
+      }
+      return false;
+    });
+    check('トリミング済みPDFでも番号が表示範囲に入る', found);
+  }
+
+  // 範囲が壊れたテンプレートは読み込まない (隠す場所が減ったまま使われるのを防ぐ)
+  const brokenJson = JSON.stringify({
+    app: 'tamani-pdf',
+    kind: 'redact-templates',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    templates: [
+      {
+        id: 'broken',
+        name: '壊れたテンプレート',
+        version: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        rects: [
+          { id: 'r1', x: 0.1, y: 0.1, w: 0.3, h: 0.05, color: 'black', scope: { type: 'all' } },
+          { id: 'r2', x: 'こわれた', y: null, w: 0.3, h: 0.05, color: 'black', scope: { type: 'all' } },
+        ],
+      },
+    ],
+  });
+
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  const countBefore = await page.locator('.template-item').count();
+  await page.locator('input[accept="application/json,.json"]').setInputFiles({
+    name: 'broken.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(brokenJson, 'utf8'),
+  });
+  await page.waitForTimeout(800);
+  const message = await page.locator('.snackbar').innerText().catch(() => '');
+  check('壊れた範囲があるテンプレートは読み込まない', message.includes('壊れている'), message || '(通知なし)');
+  check(
+    '読み込まなかったテンプレートは一覧に増えない',
+    (await page.locator('.template-item').count()) === countBefore,
   );
 }
 

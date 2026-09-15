@@ -1,8 +1,10 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useEffect, useState, type ReactNode } from 'react';
+import { ActivePageProvider } from './app/ActivePage';
 import { AppShell } from './app/AppShell';
 import { SettingsProvider } from './app/SettingsContext';
 import { TemplatesProvider } from './app/TemplatesContext';
 import { useHashRoute } from './app/useHashRoute';
+import type { RouteId } from './app/routes';
 import { HelpPage } from './features/help/HelpPage';
 import { HomePage } from './features/home/HomePage';
 import { SettingsPage } from './features/settings/SettingsPage';
@@ -21,6 +23,18 @@ const BatchPage = lazy(() =>
   import('./features/batch/BatchPage').then((module) => ({ default: module.BatchPage })),
 );
 
+/**
+ * 作業状態を持つ画面。
+ *
+ * これらは一度開いたら、他の画面へ移っても作り直さずに隠しておく。
+ * 「使い方を確認したい」「画質を変えたい」でヘルプや設定を開いただけで
+ * 読み込んだPDFと編集内容が消えてしまうのを避けるため。
+ *
+ * PDFは端末のメモリに置いたままになるが、外には出ない。
+ * 手放したいときは各画面の「クリア」で閉じられる。
+ */
+const WORKSPACE_ROUTES: RouteId[] = ['organize', 'redact', 'batch'];
+
 function PageLoading() {
   return (
     <div className="page" style={{ paddingTop: 40 }}>
@@ -32,33 +46,56 @@ function PageLoading() {
   );
 }
 
+function Workspace({ id, active, children }: { id: RouteId; active: boolean; children: ReactNode }) {
+  return (
+    <div key={id} style={active ? undefined : { display: 'none' }} aria-hidden={active ? undefined : true}>
+      <ActivePageProvider value={active}>{children}</ActivePageProvider>
+    </div>
+  );
+}
+
 function CurrentPage() {
   const route = useHashRoute();
 
-  const content = (() => {
+  // 一度開いた作業画面だけを残す (開いていない画面は読み込みもしない)
+  const [opened, setOpened] = useState<RouteId[]>([]);
+  useEffect(() => {
+    if (!WORKSPACE_ROUTES.includes(route.id)) return;
+    setOpened((current) => (current.includes(route.id) ? current : [...current, route.id]));
+  }, [route.id]);
+
+  const simplePage = (() => {
     switch (route.id) {
-      case 'organize':
-        return <OrganizePage />;
-      case 'redact':
-        return <RedactPage />;
-      case 'batch':
-        return <BatchPage />;
       case 'settings':
         return <SettingsPage />;
       case 'help':
         return <HelpPage />;
       case 'home':
-      default:
         return <HomePage />;
+      default:
+        return null;
     }
   })();
 
-  // key を変えて、画面を切り替えるたびに各ツールの状態を作り直す。
-  // 前の画面で開いたPDFがメモリに残り続けるのを防ぐ狙いもある。
   return (
     <AppShell route={route}>
       <Suspense fallback={<PageLoading />}>
-        <div key={route.id}>{content}</div>
+        {opened.includes('organize') ? (
+          <Workspace id="organize" active={route.id === 'organize'}>
+            <OrganizePage />
+          </Workspace>
+        ) : null}
+        {opened.includes('redact') ? (
+          <Workspace id="redact" active={route.id === 'redact'}>
+            <RedactPage />
+          </Workspace>
+        ) : null}
+        {opened.includes('batch') ? (
+          <Workspace id="batch" active={route.id === 'batch'}>
+            <BatchPage />
+          </Workspace>
+        ) : null}
+        {simplePage}
       </Suspense>
     </AppShell>
   );

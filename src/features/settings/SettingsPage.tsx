@@ -4,6 +4,10 @@ import { useTemplates } from '../../app/TemplatesContext';
 import { APP_NAME, APP_VERSION, BUILD_DATE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../../app/version';
 import { DPI_CHOICES } from '../../core/storage/settings';
 import { buildExportFile, parseImportFile } from '../../core/storage/templates';
+
+/** 端末に保存できなかったときに出す案内 (複数の場所で使う) */
+const STORAGE_WARNING =
+  'この端末に保存できませんでした (保存容量がいっぱいか、ブラウザの設定で保存できない状態です)。この画面を閉じると消えるので、必要ならJSONに書き出してください。';
 import { clearAll, isStorageAvailable } from '../../core/storage/store';
 import { saveText } from '../../core/util/download';
 import { formatDateTime } from '../../core/util/format';
@@ -33,8 +37,24 @@ export function SettingsPage() {
   const importTemplates = useCallback(
     async (file: File) => {
       try {
-        const count = templates.importMany(parseImportFile(await file.text()));
-        snackbar.success(`${count}件のテンプレートを読み込みました。`);
+        const { templates: parsed, skipped } = parseImportFile(await file.text());
+        const { count, stored } = templates.importMany(parsed);
+        // 読み込まなかったものがあれば必ず伝える。
+        // 墨消しでは「読めたつもりで範囲が減っている」のがいちばん危ない。
+        const skippedNote = skipped.length > 0 ? ` ${skipped.length}件は読み込めませんでした。` : '';
+        if (!stored) {
+          snackbar.error(
+            `${count}件を読み込みましたが、${STORAGE_WARNING}${skippedNote}`,
+          );
+        } else if (skipped.length > 0) {
+          const broken = skipped.filter((item) => item.problem === 'droppedRects').length;
+          snackbar.show(
+            `${count}件を読み込みました。${skipped.length}件は読み込めませんでした` +
+              (broken > 0 ? ` (${broken}件は範囲が壊れています)。` : '。'),
+          );
+        } else {
+          snackbar.success(`${count}件のテンプレートを読み込みました。`);
+        }
       } catch (error) {
         snackbar.error(error instanceof Error ? error.message : 'テンプレートを読み込めませんでした。');
       }
@@ -211,9 +231,10 @@ export function SettingsPage() {
               </p>
               <p>
                 そのかわり、テンプレートを保存するときに
-                <strong>そのページを96px幅まで縮めた白黒の簡易画像</strong> (文字は読み取れない粗さ) を
-                一緒に保存します。置き場所は次の2か所だけで、どちらも端末の外には出ません
-                (このアプリは外部へ通信しません)。
+                <strong>そのページを96px幅まで縮めた白黒の簡易画像</strong>を一緒に保存します。
+                本文が読める大きさではありませんが、大きな見出しや印影のような目立つものは
+                <strong>内容の一部が判別できる場合があります</strong>。
+                置き場所は次の2か所だけで、どちらも端末の外には出ません (このアプリは外部へ通信しません)。
               </p>
               <ul style={{ paddingLeft: '1.2em' }}>
                 <li>この端末のブラウザ (localStorage)</li>
@@ -250,7 +271,9 @@ export function SettingsPage() {
                     label="削除"
                     small
                     danger
-                    onClick={() => templates.remove(template.id)}
+                    onClick={() => {
+                      if (!templates.remove(template.id).stored) snackbar.error(STORAGE_WARNING);
+                    }}
                   />
                 </div>
               ))}
@@ -284,7 +307,7 @@ export function SettingsPage() {
           </div>
           <p className="text-small muted" style={{ marginTop: 8, marginBottom: 0 }}>
             {templates.templates.some((template) => template.anchor)
-              ? '書き出したJSONに入るのは、範囲の座標と、自動位置合わせ用の簡易画像 (96px幅の白黒。文字は読めません) です。PDFそのものは含まれません。'
+              ? '書き出したJSONに入るのは、範囲の座標と、自動位置合わせ用の簡易画像 (96px幅の白黒。内容の一部が判別できる場合があります) です。PDFそのものは含まれません。'
               : '書き出したJSONに入るのは範囲の座標だけです。PDFの中身は含まれません。'}
           </p>
         </div>
@@ -338,7 +361,9 @@ export function SettingsPage() {
             <Button
               variant="filled"
               onClick={() => {
-                if (renaming) templates.update(renaming.id, { name: renaming.name });
+                if (renaming && !templates.update(renaming.id, { name: renaming.name }).stored) {
+                  snackbar.error(STORAGE_WARNING);
+                }
                 setRenaming(null);
               }}
             >
@@ -368,6 +393,7 @@ export function SettingsPage() {
               onClick={() => {
                 clearAll();
                 templates.removeAll();
+
                 reset();
                 setConfirmClear(false);
                 snackbar.success('保存データを削除しました。');

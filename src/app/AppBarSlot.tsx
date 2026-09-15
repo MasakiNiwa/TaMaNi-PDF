@@ -1,5 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useIsActivePage } from './ActivePage';
 
 /**
  * アプリバー右側の差し込み口。
@@ -14,6 +15,8 @@ export const AppBarSlotProvider = AppBarSlotContext.Provider;
 
 export function AppBarSlot({ children }: { children: ReactNode }) {
   const host = useContext(AppBarSlotContext);
-  if (!host) return null;
+  // 隠れている画面のボタンは出さない (前面の画面のものだけを置く)
+  const active = useIsActivePage();
+  if (!host || !active) return null;
   return createPortal(children, host);
 }

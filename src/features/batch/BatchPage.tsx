@@ -1,14 +1,15 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { zipSync } from 'fflate';
 import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
+import { useUnloadGuard } from '../../app/useUnloadGuard';
 import { useTemplates } from '../../app/TemplatesContext';
 import { hrefFor } from '../../app/routes';
 import { alignRect, alignSummary } from '../../core/pdf/align';
 import { closePdf, openWithPdfjs } from '../../core/pdf/pdfjs';
 import { redactToPdf } from '../../core/pdf/redact';
 import { estimateTemplateAlignment } from '../../core/pdf/templateAlign';
-import { rectsForPage } from '../../core/storage/templates';
+import { countAppliedRects, rectsForPage, scopeLabel, unmatchedScopes } from '../../core/storage/templates';
 import { saveBytes } from '../../core/util/download';
 import { baseName, formatBytes, sanitizeFileName } from '../../core/util/format';
 import { createId } from '../../core/util/id';
@@ -23,6 +24,16 @@ import { TemplatePreview } from './TemplatePreview';
 
 type JobStatus = 'waiting' | 'running' | 'done' | 'error';
 
+/**
+ * 出来上がったPDFが「どの条件で作られたか」を表す文字列。
+ *
+ * テンプレートや画質を変えたあとに、前の条件で作ったPDFが
+ * そのまま残って保存されてしまうのを防ぐために持っておく。
+ */
+function conditionOf(templateId: string, settings: { redactDpi: number; redactFormat: string; jpegQuality: number }, autoAlign: boolean): string {
+  return [templateId, settings.redactDpi, settings.redactFormat, settings.jpegQuality, autoAlign].join('|');
+}
+
 interface Job {
   id: string;
   file: File;
@@ -30,6 +41,8 @@ interface Job {
   message?: string;
   /** 自動位置合わせの結果 (画面に出す短い説明) */
   align?: string;
+  /** この結果を作ったときの条件 */
+  condition?: string;
   outputName?: string;
   output?: Uint8Array;
 }
@@ -51,6 +64,34 @@ export function BatchPage() {
     () => templates.find((item) => item.id === templateId),
     [templates, templateId],
   );
+
+  const condition = conditionOf(templateId, settings, settings.templateAutoAlign);
+
+  /**
+   * 条件が変わったら、前の条件で作った結果は捨てる。
+   *
+   * 残したままだと、画面はテンプレートBを選んでいるのに
+   * Aで作ったPDFを保存する (ZIPに混ざる) ことになる。
+   */
+  useEffect(() => {
+    if (running) return;
+    setJobs((current) => {
+      if (!current.some((job) => job.status === 'done' && job.condition !== condition)) return current;
+      return current.map((job) =>
+        job.status === 'done' && job.condition !== condition
+          ? {
+              ...job,
+              status: 'waiting' as JobStatus,
+              output: undefined,
+              outputName: undefined,
+              align: undefined,
+              condition: undefined,
+              message: '条件が変わったので、もう一度実行してください',
+            }
+          : job,
+      );
+    });
+  }, [condition, running]);
 
   const addFiles = useCallback((files: File[]) => {
     setJobs((current) => [
@@ -83,6 +124,20 @@ export function BatchPage() {
       try {
         const bytes = new Uint8Array(await job.file.arrayBuffer());
         proxy = await openWithPdfjs(bytes);
+
+        // 当たる範囲が1つもないまま画像化すると、
+        // 「墨消しできたつもりで、何も隠れていないPDF」が出来てしまう。
+        const applied = countAppliedRects(template, proxy.numPages);
+        if (applied === 0) {
+          const scopes = unmatchedScopes(template, proxy.numPages).map(scopeLabel).join('・');
+          patchJob(job.id, {
+            status: 'error',
+            message: `このPDF (${proxy.numPages}ページ) には当たる範囲がありません${scopes ? ` (${scopes})` : ''}`,
+          });
+          continue;
+        }
+        const missing = unmatchedScopes(template, proxy.numPages);
+
         // ファイルごとにずれを測る。同じ発行元でも回によって位置が動くことがあるため。
         const alignment = await estimateTemplateAlignment(template, proxy, settings.templateAutoAlign);
         // オフのときや基準画像がないときは、行ごとに出しても情報が増えないので黙っておく
@@ -109,7 +164,12 @@ export function BatchPage() {
           status: 'done',
           output,
           outputName: `${baseName(job.file.name)}${settings.redactSuffix}.pdf`,
-          message: formatBytes(output.byteLength),
+          message:
+            formatBytes(output.byteLength) +
+            (missing.length > 0
+              ? ` ・ 当たらない指定あり (${missing.map(scopeLabel).join('・')})`
+              : ''),
+          condition,
         });
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -128,10 +188,27 @@ export function BatchPage() {
     setPageProgress(null);
     setRunning(false);
     abortRef.current = null;
-    if (!controller.signal.aborted) snackbar.success('一括墨消しが終わりました。');
-  }, [template, jobs, settings, patchJob, snackbar]);
+
+    if (controller.signal.aborted) return;
+    // 全部失敗しても「終わりました」と出ていたので、件数で伝える
+    setJobs((current) => {
+      const done = current.filter((job) => job.status === 'done').length;
+      const failed = current.filter((job) => job.status === 'error').length;
+      const rest = current.length - done - failed;
+      const summary = `完了 ${done}件 / 失敗 ${failed}件${rest > 0 ? ` / 未処理 ${rest}件` : ''}`;
+      if (failed > 0 && done === 0) snackbar.error(summary);
+      else if (failed > 0) snackbar.show(summary);
+      else snackbar.success(summary);
+      return current;
+    });
+  }, [template, jobs, settings, patchJob, snackbar, condition]);
+
+  // 画面ごと閉じられたら処理を止める (裏で走り続けないように)
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const completed = jobs.filter((job) => job.status === 'done');
+  // 処理中と、まだ保存していない出来上がりがあるあいだは引き止める
+  useUnloadGuard(running || completed.length > 0);
   const previewJob = jobs.find((job) => job.id === previewJobId);
 
   const downloadAllAsZip = useCallback(() => {
@@ -193,6 +270,7 @@ export function BatchPage() {
               <select
                 className="select"
                 value={templateId}
+                disabled={running}
                 onChange={(event) => setTemplateId(event.target.value)}
                 aria-label="適用するテンプレート"
               >

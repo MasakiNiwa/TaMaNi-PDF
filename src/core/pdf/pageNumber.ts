@@ -66,11 +66,14 @@ export function formatPageNumber(format: PageNumberFormat, current: number, last
 }
 
 /**
- * ページの回転を考えて、「見た目の位置」を実際の座標に直す。
+ * 「見た目の位置」を実際の座標に直す。
  *
- * PDFのページは /Rotate で回して表示されることがある。
- * 回転を無視して座標を決めると、横向きのページで番号が横倒しになったり、
- * 紙の外に出たりする。
+ * 見た目を決めるのは次の2つ。
+ *
+ * - `/Rotate`: ページは回して表示されることがある。
+ *   無視すると横向きのページで番号が横倒しになる。
+ * - `/CropBox`: 実際に表示されるのは紙全体ではなく、切り抜かれた範囲のことがある
+ *   (トリミング済みPDF)。紙のサイズで位置を決めると、番号が表示範囲の外に出てしまう。
  */
 function place(
   page: PDFPage,
@@ -79,15 +82,16 @@ function place(
   size: number,
   margin: number,
 ): { x: number; y: number; rotate: number } {
-  const { width, height } = page.getSize();
+  // 表示される範囲。ない場合は紙全体が返る。
+  const box = page.getCropBox();
   const rotation = ((page.getRotation().angle % 360) + 360) % 360;
   const quarter = rotation === 90 || rotation === 270;
 
-  // 見た目の紙の大きさ
-  const viewWidth = quarter ? height : width;
-  const viewHeight = quarter ? width : height;
+  // 見た目の大きさ (回すと縦横が入れ替わる)
+  const viewWidth = quarter ? box.height : box.width;
+  const viewHeight = quarter ? box.width : box.height;
 
-  // 見た目の上での置きたい場所 (左下が原点)
+  // 見た目の上での置きたい場所 (表示範囲の左下が原点)
   const isTop = position.startsWith('top');
   const viewY = isTop ? viewHeight - margin - size : margin;
   const viewX = position.endsWith('center')
@@ -96,18 +100,24 @@ function place(
       ? viewWidth - margin - textWidth
       : margin;
 
-  switch (rotation) {
-    case 90:
-      // 見た目の右 = 実際の上、見た目の上 = 実際の左
-      return { x: width - viewY, y: viewX, rotate: 90 };
-    case 180:
-      return { x: width - viewX, y: height - viewY, rotate: 180 };
-    case 270:
-      return { x: viewY, y: height - viewX, rotate: 270 };
-    case 0:
-    default:
-      return { x: viewX, y: viewY, rotate: 0 };
-  }
+  // 回転を戻して、表示範囲の左下からの位置にする
+  const local = (() => {
+    switch (rotation) {
+      case 90:
+        // 見た目の右 = 実際の上、見た目の上 = 実際の左
+        return { x: box.width - viewY, y: viewX };
+      case 180:
+        return { x: box.width - viewX, y: box.height - viewY };
+      case 270:
+        return { x: viewY, y: box.height - viewX };
+      case 0:
+      default:
+        return { x: viewX, y: viewY };
+    }
+  })();
+
+  // 最後に、表示範囲の原点ぶんだけずらす (紙の左下と表示範囲の左下は一致しない)
+  return { x: box.x + local.x, y: box.y + local.y, rotate: rotation };
 }
 
 /**

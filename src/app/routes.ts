@@ -30,7 +30,7 @@ export const ROUTES: RouteDef[] = [
     label: 'ページ整理',
     navLabel: '整理',
     icon: 'pages',
-    description: 'ページの並べ替え・回転・追加・削除をして1つのPDFにまとめます。',
+    description: 'PDFをまとめる・並べ替える。向きを直す、いらないページを消す、番号をふる。',
     inNav: true,
   },
   {
@@ -39,7 +39,7 @@ export const ROUTES: RouteDef[] = [
     label: '墨消し',
     navLabel: '墨消し',
     icon: 'draw',
-    description: '隠したい部分を塗りつぶします。下に隠れた文字ごと消えます。',
+    description: '見せたくない情報を隠す。下に残った文字ごと消すので、あとから読めません。',
     inNav: true,
   },
   {
@@ -48,7 +48,7 @@ export const ROUTES: RouteDef[] = [
     label: '一括墨消し',
     navLabel: '一括',
     icon: 'layers',
-    description: '保存したテンプレートを使って複数のPDFをまとめて墨消しします。',
+    description: '同じ書式のPDFを、同じ場所でまとめて隠す。毎月届く書類などに。',
     inNav: true,
   },
   {
