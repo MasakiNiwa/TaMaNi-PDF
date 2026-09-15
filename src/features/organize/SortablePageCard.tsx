@@ -19,6 +19,8 @@ export interface SortablePageCardProps {
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onMove: (id: string, offset: number) => void;
+  /** サムネイルを押したとき (中身を確かめる拡大表示を開く) */
+  onOpen: (id: string) => void;
 }
 
 export function SortablePageCard({
@@ -34,6 +36,7 @@ export function SortablePageCard({
   onDelete,
   onDuplicate,
   onMove,
+  onOpen,
 }: SortablePageCardProps) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
     useSortable({ id: page.id });
@@ -77,14 +80,26 @@ export function SortablePageCard({
         />
       </div>
 
-      <PageThumbnail
-        cache={cache}
-        source={source}
-        pageIndex={page.sourceIndex}
-        rotation={page.rotation}
-        boxWidth={boxWidth}
-        alt={`${index + 1}ページ目のプレビュー`}
-      />
+      {/*
+        サムネイルは押せる。小さくて読めないときに、全画面で確かめられるようにするため。
+        並べ替えのつまみとは別物なので、ここはドラッグの対象にしない。
+      */}
+      <button
+        type="button"
+        className="page-card__open"
+        onClick={() => onOpen(page.id)}
+        aria-label={`${index + 1}ページ目を大きく見る`}
+        title="押すと大きく表示します"
+      >
+        <PageThumbnail
+          cache={cache}
+          source={source}
+          pageIndex={page.sourceIndex}
+          rotation={page.rotation}
+          boxWidth={boxWidth}
+          alt={`${index + 1}ページ目のプレビュー`}
+        />
+      </button>
 
       <div className="page-card__meta" title={source.name}>
         {source.name}

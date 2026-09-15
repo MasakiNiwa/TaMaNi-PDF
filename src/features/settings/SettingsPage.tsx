@@ -124,6 +124,28 @@ export function SettingsPage() {
       </section>
 
       <section className="section">
+        <h2 className="section__title">ページ整理</h2>
+        <div className="card card--outlined">
+          <SettingRow
+            title="PDFを追加するとき"
+            description="すでにページがあるところへ追加する場合の動きです。最初の読み込みは、どちらでも全ページ入ります。"
+          >
+            <select
+              className="select"
+              value={settings.addPagesMode}
+              onChange={(event) =>
+                update({ addPagesMode: event.target.value === 'all' ? 'all' : 'choose' })
+              }
+              aria-label="PDFを追加するとき"
+            >
+              <option value="choose">入れるページを選ぶ</option>
+              <option value="all">すべて追加する</option>
+            </select>
+          </SettingRow>
+        </div>
+      </section>
+
+      <section className="section">
         <h2 className="section__title">墨消しの出力</h2>
         <div className="card card--outlined">
           <SettingRow

@@ -25,6 +25,8 @@ import {
   type PageNumberOptions,
   type PageNumberPosition,
 } from '../../core/pdf/pageNumber';
+import { closePdf } from '../../core/pdf/pdfjs';
+import type { PageRef } from '../../core/pdf/types';
 import { createBlankSource, loadAnyFile } from '../../core/pdf/source';
 import {
   THUMBNAIL_SIZES,
@@ -41,6 +43,8 @@ import { Icon } from '../../ui/Icon';
 import { Banner, EmptyState } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
 import { SortablePageCard } from './SortablePageCard';
+import { AddPagesDialog, type PendingAdd } from './AddPagesDialog';
+import { PagePreview } from './PagePreview';
 import { usePageDeck } from './usePageDeck';
 import { useWindowedGrid } from './useWindowedGrid';
 
@@ -54,6 +58,14 @@ export function OrganizePage() {
   // null のあいだは番号を入れない
   const [pageNumber, setPageNumber] = useState<PageNumberOptions | null>(null);
   const [numberDialogOpen, setNumberDialogOpen] = useState(false);
+  /** 拡大表示しているページ (小さくて読めないときの確認用) */
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  /** 追加するページを選んでもらう順番待ち (ファイルごとに1つ) */
+  const [pendingAdds, setPendingAdds] = useState<PendingAdd[]>([]);
+
+  const previewIndex = deck.pages.findIndex((page) => page.id === previewId);
+  const previewPage = previewIndex >= 0 ? deck.pages[previewIndex] : null;
+  const previewSource = previewPage ? deck.sources.get(previewPage.sourceId) : undefined;
   // ダイアログの中でいじっている途中の設定 (「入れる」を押すまで反映しない)
   const [draft, setDraft] = useState<PageNumberOptions>(DEFAULT_PAGE_NUMBER);
 
@@ -109,18 +121,48 @@ export function OrganizePage() {
     async (files: File[]) => {
       setBusy(true);
       try {
+        // 最初の読み込みは全ページ入れる。選ばせるのは「あとから足す」ときだけ。
+        let hasPages = deck.pages.length > 0;
+        let added = 0;
+        const queued: PendingAdd[] = [];
         for (const file of files) {
           const { source, pages } = await loadAnyFile(file);
-          deck.addSource(source, pages);
+          const choose = settings.addPagesMode === 'choose' && hasPages && pages.length > 1;
+          if (choose) {
+            queued.push({ source, pages });
+          } else {
+            deck.addSource(source, pages);
+            added += 1;
+            hasPages = true;
+          }
         }
-        snackbar.success(`${files.length}件のファイルを読み込みました。`);
+        if (queued.length > 0) setPendingAdds((current) => [...current, ...queued]);
+        if (added > 0) snackbar.success(`${added}件のファイルを読み込みました。`);
       } catch (error) {
         handleError(error);
       } finally {
         setBusy(false);
       }
     },
-    [deck, handleError, snackbar],
+    [deck, handleError, snackbar, settings.addPagesMode],
+  );
+
+  /** 順番待ちの先頭を片付ける (追加する / 追加せず閉じる) */
+  const resolvePendingAdd = useCallback(
+    (pages: PageRef[] | null) => {
+      setPendingAdds((current) => {
+        const [entry, ...rest] = current;
+        if (!entry) return current;
+        if (pages && pages.length > 0) {
+          deck.addSource(entry.source, pages);
+        } else {
+          // 入れないファイルは開いたままにしない
+          void closePdf(entry.source.proxy);
+        }
+        return rest;
+      });
+    },
+    [deck],
   );
 
   const addBlankPage = useCallback(async () => {
@@ -368,6 +410,8 @@ export function OrganizePage() {
                 className="page-grid"
                 style={{
                   ['--page-card-width' as string]: `${boxWidth + 24}px`,
+                  // スマホは既定で2列。大きい指定のときだけ1列に落として、実際に大きく見せる。
+                  ['--page-card-floor' as string]: boxWidth >= 232 ? '100%' : '46%',
                   // 描いていない行のぶんは余白で埋めて、スクロールの長さを保つ
                   paddingTop: windowed.padTop || undefined,
                   paddingBottom: windowed.padBottom || undefined,
@@ -395,6 +439,7 @@ export function OrganizePage() {
                       }}
                       onDuplicate={(id) => deck.duplicatePages(new Set([id]))}
                       onMove={deck.movePage}
+                      onOpen={setPreviewId}
                     />
                   );
                 })}
@@ -404,6 +449,43 @@ export function OrganizePage() {
 
         </>
       )}
+
+      {pendingAdds[0] ? (
+        <AddPagesDialog
+          entry={pendingAdds[0]}
+          cache={deck.thumbnails}
+          remaining={pendingAdds.length - 1}
+          onCancel={() => resolvePendingAdd(null)}
+          onAdd={(pages) => {
+            resolvePendingAdd(pages);
+            snackbar.success(`${pages.length}ページを追加しました。`);
+          }}
+        />
+      ) : null}
+
+      {previewPage && previewSource ? (
+        <PagePreview
+          page={previewPage}
+          source={previewSource}
+          index={previewIndex}
+          total={deck.pages.length}
+          selected={selected.has(previewPage.id)}
+          onClose={() => setPreviewId(null)}
+          onNavigate={(delta) => {
+            const next = deck.pages[previewIndex + delta];
+            if (next) setPreviewId(next.id);
+          }}
+          onRotate={(delta) => deck.rotatePages(new Set([previewPage.id]), delta)}
+          onDelete={() => {
+            // 消したら、その場にきた次のページへ移る (最後なら閉じる)
+            const next = deck.pages[previewIndex + 1] ?? deck.pages[previewIndex - 1];
+            deck.deletePages(new Set([previewPage.id]));
+            toggleSelect(previewPage.id, false);
+            setPreviewId(next ? next.id : null);
+          }}
+          onToggleSelect={() => toggleSelect(previewPage.id, !selected.has(previewPage.id))}
+        />
+      ) : null}
 
       <Dialog
         open={numberDialogOpen}

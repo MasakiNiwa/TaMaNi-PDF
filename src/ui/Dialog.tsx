@@ -10,12 +10,14 @@ export interface DialogProps {
   onClose: () => void;
   /** 背景クリックとEscで閉じないようにする (処理中など) */
   persistent?: boolean;
+  /** 一覧など、横幅が要る中身のとき */
+  wide?: boolean;
 }
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function Dialog({ open: wanted, title, children, actions, onClose, persistent }: DialogProps) {
+export function Dialog({ open: wanted, title, children, actions, onClose, persistent, wide }: DialogProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   // 画面を切り替えたら、隠れた画面のダイアログは出したままにしない
   const activePage = useIsActivePage();
@@ -88,7 +90,14 @@ export function Dialog({ open: wanted, title, children, actions, onClose, persis
         if (!persistent && event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="dialog" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={panelRef}>
+      <div
+        className={`dialog${wide ? ' dialog--wide' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        ref={panelRef}
+      >
         <h2 className="dialog__title">{title}</h2>
         <div>{children}</div>
         {actions ? <div className="dialog__actions">{actions}</div> : null}

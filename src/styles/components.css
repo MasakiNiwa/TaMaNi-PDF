@@ -357,6 +357,11 @@
   box-shadow: var(--elev-3);
 }
 
+/* 一覧を入れるダイアログは広く使う */
+.dialog--wide {
+  width: min(880px, 100%);
+}
+
 .dialog__title {
   margin-bottom: 12px;
 }
