@@ -9,6 +9,18 @@ import {
 } from '../core/storage/templates';
 import { createId } from '../core/util/id';
 
+/**
+ * 保存の結果。
+ *
+ * localStorage は容量がいっぱいだったり、プライベートブラウズで使えなかったりする。
+ * 失敗したのに「保存しました」と出すと、次に開いたとき消えていて気づけないので、
+ * 保存できたかどうかを必ず呼び出し側へ返す。
+ */
+export interface SaveResult {
+  /** 端末に保存できたか (false でも、この画面を開いているあいだは使える) */
+  stored: boolean;
+}
+
 interface TemplatesApi {
   templates: RedactTemplate[];
   /** 名前と範囲から新しいテンプレートを保存する */
@@ -17,12 +29,12 @@ interface TemplatesApi {
     rects: TemplateRect[],
     sourcePageCount?: number,
     anchor?: TemplateAnchor,
-  ) => RedactTemplate;
-  update: (id: string, patch: Partial<Pick<RedactTemplate, 'name' | 'rects'>>) => void;
-  remove: (id: string) => void;
+  ) => SaveResult & { template: RedactTemplate };
+  update: (id: string, patch: Partial<Pick<RedactTemplate, 'name' | 'rects'>>) => SaveResult;
+  remove: (id: string) => SaveResult;
   /** 読み込んだテンプレートを追加する (同名でも別物として足す) */
-  importMany: (items: RedactTemplate[]) => number;
-  removeAll: () => void;
+  importMany: (items: RedactTemplate[]) => SaveResult & { count: number };
+  removeAll: () => SaveResult;
 }
 
 const TemplatesContext = createContext<TemplatesApi | null>(null);
@@ -30,9 +42,10 @@ const TemplatesContext = createContext<TemplatesApi | null>(null);
 export function TemplatesProvider({ children }: { children: ReactNode }) {
   const [templates, setTemplates] = useState<RedactTemplate[]>(() => loadTemplates());
 
-  const persist = useCallback((next: RedactTemplate[]) => {
+  const persist = useCallback((next: RedactTemplate[]): boolean => {
     setTemplates(next);
-    saveTemplates(next);
+    // 端末に書けなくても画面上は使えるようにして、書けたかどうかだけ返す
+    return saveTemplates(next);
   }, []);
 
   const create = useCallback(
@@ -48,25 +61,25 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
         sourcePageCount,
         anchor,
       };
-      persist([...templates, template]);
-      return template;
+      const stored = persist([...templates, template]);
+      return { template, stored };
     },
     [persist, templates],
   );
 
   const update = useCallback(
-    (id: string, patch: Partial<Pick<RedactTemplate, 'name' | 'rects'>>) => {
-      persist(
+    (id: string, patch: Partial<Pick<RedactTemplate, 'name' | 'rects'>>) => ({
+      stored: persist(
         templates.map((template) =>
           template.id === id ? { ...template, ...patch, updatedAt: new Date().toISOString() } : template,
         ),
-      );
-    },
+      ),
+    }),
     [persist, templates],
   );
 
   const remove = useCallback(
-    (id: string) => persist(templates.filter((template) => template.id !== id)),
+    (id: string) => ({ stored: persist(templates.filter((template) => template.id !== id)) }),
     [persist, templates],
   );
 
@@ -74,13 +87,13 @@ export function TemplatesProvider({ children }: { children: ReactNode }) {
     (items: RedactTemplate[]) => {
       // 読み込み元と id が衝突しないよう振り直す
       const stamped = items.map((item) => ({ ...item, id: createId('tpl') }));
-      persist([...templates, ...stamped]);
-      return stamped.length;
+      const stored = persist([...templates, ...stamped]);
+      return { count: stamped.length, stored };
     },
     [persist, templates],
   );
 
-  const removeAll = useCallback(() => persist([]), [persist]);
+  const removeAll = useCallback(() => ({ stored: persist([]) }), [persist]);
 
   const api = useMemo<TemplatesApi>(
     () => ({ templates, create, update, remove, importMany, removeAll }),

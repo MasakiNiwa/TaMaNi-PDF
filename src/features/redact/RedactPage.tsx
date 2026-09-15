@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppBarSlot } from '../../app/AppBarSlot';
 import { hrefFor } from '../../app/routes';
 import { useSettings } from '../../app/SettingsContext';
+import { useUnloadGuard } from '../../app/useUnloadGuard';
 import { useHistoryState } from '../../app/useHistoryState';
 import { useTemplates } from '../../app/TemplatesContext';
 import { PdfUserError } from '../../core/pdf/errors';
@@ -88,9 +89,14 @@ export function RedactPage() {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [templateName, setTemplateName] = useState('');
   const [templateBusy, setTemplateBusy] = useState(false);
+  /** 切り替えの確認待ちになっているファイル */
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => setColor(settings.defaultRedactColor), [settings.defaultRedactColor]);
+
+  // 読み込んだPDFと指定した範囲は保存していないので、閉じる前に引き止める
+  useUnloadGuard(pdf !== null);
 
   // 画面を離れるときに pdf.js のドキュメントを解放する
   const pdfRef = useRef<LoadedPdf | null>(null);
@@ -103,10 +109,8 @@ export function RedactPage() {
     [],
   );
 
-  const loadFile = useCallback(
-    async (files: File[]) => {
-      const file = files[0];
-      if (!file) return;
+  const openFile = useCallback(
+    async (file: File) => {
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
         const proxy = await openWithPdfjs(bytes);
@@ -123,6 +127,25 @@ export function RedactPage() {
       }
     },
     [snackbar, history],
+  );
+
+  /**
+   * 別のPDFに切り替える。
+   *
+   * 指定した範囲は引き継げないので、消えるものがあるときは先に確認する。
+   * 読み込み直したいだけのつもりで、作った範囲を失うのを防ぐため。
+   */
+  const loadFile = useCallback(
+    async (files: File[]) => {
+      const file = files[0];
+      if (!file) return;
+      if (pdf && rects.length > 0) {
+        setPendingFile(file);
+        return;
+      }
+      await openFile(file);
+    },
+    [openFile, pdf, rects.length],
   );
 
   /** PDFを閉じて最初の画面へ戻す */
@@ -237,12 +260,19 @@ export function RedactPage() {
       const anchor = settings.templateAutoAlign
         ? await capturePageAnchor(pdf.proxy, pageIndex).catch(() => undefined)
         : undefined;
-      templates.create(templateName, rects, pageCount, anchor);
+      const { stored } = templates.create(templateName, rects, pageCount, anchor);
       setTemplateDialogOpen(false);
       setTemplateName('');
-      snackbar.success(
-        anchor ? 'テンプレートを保存しました (自動位置合わせ付き)。' : 'テンプレートを保存しました。',
-      );
+      if (!stored) {
+        // 端末に書けなかったときに「保存しました」と出すと、次に開いたとき消えていて気づけない
+        snackbar.error(
+          'この端末に保存できませんでした (保存容量がいっぱいか、ブラウザの設定で保存できない状態です)。この画面を開いているあいだは使えます。設定からJSONに書き出しておいてください。',
+        );
+      } else {
+        snackbar.success(
+          anchor ? 'テンプレートを保存しました (自動位置合わせ付き)。' : 'テンプレートを保存しました。',
+        );
+      }
     } finally {
       setTemplateBusy(false);
     }
@@ -411,7 +441,19 @@ export function RedactPage() {
                       onClick={() => goToPage(pageIndex - 1)}
                     />
                     <span className="redact-pager__label">
-                      {pageIndex + 1} / {pageCount}
+                      <input
+                        className="redact-pager__input"
+                        type="number"
+                        min={1}
+                        max={pageCount}
+                        value={pageIndex + 1}
+                        aria-label="表示するページ"
+                        onChange={(event) => {
+                          const next = Number(event.target.value);
+                          if (Number.isFinite(next)) goToPage(next - 1);
+                        }}
+                      />
+                      / {pageCount}
                     </span>
                     <IconButton
                       icon="chevron_right"
@@ -504,8 +546,13 @@ export function RedactPage() {
                       <button
                         type="button"
                         className="rect-list__label"
-                        onClick={() => setSelectedId(rect.id)}
-                        title="この範囲を選ぶ"
+                        onClick={() => {
+                          setSelectedId(rect.id);
+                          // 別のページの範囲を選んだときは、そのページを出す
+                          if (rect.scope.type === 'index') goToPage(rect.scope.index);
+                          else if (rect.scope.type === 'fromEnd') goToPage(pageCount - 1 - rect.scope.index);
+                        }}
+                        title="この範囲を選ぶ (別のページならそのページを表示)"
                       >
                         範囲{index + 1} ・ {scopeLabel(rect.scope)}
                       </button>
@@ -564,8 +611,8 @@ export function RedactPage() {
             {settings.templateAutoAlign ? (
               <>
                 {' '}
-                自動位置合わせがオンなので、このページを96px幅まで縮めた白黒の簡易画像
-                (文字は読めません) も一緒に保存します。
+                自動位置合わせがオンなので、このページを96px幅まで縮めた白黒の簡易画像も一緒に保存します。
+                本文は読めない粗さですが、大きな見出しなど<strong>内容の一部が判別できる場合があります</strong>。
               </>
             ) : (
               <>
@@ -622,6 +669,32 @@ export function RedactPage() {
             </p>
           </>
         )}
+      </Dialog>
+
+      <Dialog
+        open={pendingFile !== null}
+        title="別のPDFに切り替えますか?"
+        onClose={() => setPendingFile(null)}
+        actions={
+          <>
+            <Button onClick={() => setPendingFile(null)}>キャンセル</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const file = pendingFile;
+                setPendingFile(null);
+                if (file) void openFile(file);
+              }}
+            >
+              切り替える
+            </Button>
+          </>
+        }
+      >
+        <p style={{ marginBottom: 0 }}>
+          いま指定している{rects.length}個の範囲は、別のPDFには引き継げないため消えます。
+          同じ範囲をまた使うなら、先に「テンプレート」で保存しておいてください。
+        </p>
       </Dialog>
 
       <Dialog

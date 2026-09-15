@@ -13,6 +13,7 @@ import { restrictToParentElement } from '@dnd-kit/modifiers';
 import { SortableContext, rectSortingStrategy, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
+import { useUnloadGuard } from '../../app/useUnloadGuard';
 import { buildPdfFromPages } from '../../core/pdf/assemble';
 import { PdfUserError } from '../../core/pdf/errors';
 import {
@@ -163,8 +164,12 @@ export function OrganizePage() {
   }, [deck.pages, deck.sources, firstSourceName, settings.organizeSuffix, snackbar, handleError, pageNumber]);
 
   const hasPages = deck.pages.length > 0;
+  // 読み込んだページはどこにも保存していないので、閉じる前に引き止める
+  useUnloadGuard(hasPages);
   const numberedCount = Math.max(0, deck.pages.length - (draft.skipFirst ? 1 : 0));
   const lastNumber = draft.startAt + Math.max(0, numberedCount - 1);
+  // 選択なしで全ページに効くのは意外なので、ボタン自体に書いておく
+  const rotateLabel = selected.size > 0 ? `選択した${selected.size}ページを` : '全ページを';
   const totalBytes = useMemo(
     () => [...deck.sources.values()].reduce((sum, source) => sum + source.byteLength, 0),
     [deck.sources],
@@ -235,7 +240,7 @@ export function OrganizePage() {
               icon="rotate_left"
               onClick={() => deck.rotatePages(selected.size > 0 ? selected : null, -90)}
             >
-              左に回転
+              {rotateLabel}左に回転
             </Button>
             <Button
               small
@@ -243,7 +248,7 @@ export function OrganizePage() {
               icon="rotate_right"
               onClick={() => deck.rotatePages(selected.size > 0 ? selected : null, 90)}
             >
-              右に回転
+              {rotateLabel}右に回転
             </Button>
             <span className="toolbar__divider" />
 
@@ -291,7 +296,6 @@ export function OrganizePage() {
 
           <p className="text-small muted" style={{ marginBottom: 12 }}>
             全{deck.pages.length}ページ / 読み込み済み {deck.sources.size}ファイル ({formatBytes(totalBytes)})
-            {selected.size === 0 ? ' ・ 回転ボタンは選択がないとき全ページに効きます' : ''}
             {windowed.active ? ' ・ 表示は画面に入るぶんだけ描いています (操作はすべてのページに効きます)' : ''}
           </p>
 
@@ -350,6 +354,8 @@ export function OrganizePage() {
         onClose={() => setNumberDialogOpen(false)}
         actions={
           <>
+            {/* 何も変えずに閉じる道を用意する (「入れない」は設定を消す操作なので別物) */}
+            <Button onClick={() => setNumberDialogOpen(false)}>キャンセル</Button>
             <Button
               variant="danger"
               disabled={!pageNumber}
