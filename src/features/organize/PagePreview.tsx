@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { renderPageToCanvas } from '../../core/pdf/render';
 import type { PageRef, PdfSource } from '../../core/pdf/types';
 import { Button, IconButton } from '../../ui/Button';
+import { useFocusTrap } from '../../ui/useFocusTrap';
 
 /**
  * 1ページだけを画面いっぱいに出して、中身を確かめるための表示。
@@ -32,13 +33,36 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** 拡大した中身が枠の外へ流れてしまわないように押しとどめる */
-function clampView(view: View, width: number, height: number): View {
+/** 枠と中身の大きさ (中身は拡大前の値) */
+interface Box {
+  frameWidth: number;
+  frameHeight: number;
+  contentWidth: number;
+  contentHeight: number;
+}
+
+/**
+ * 中身が枠から流れ出さないように押しとどめる。
+ *
+ * 枠と中身の大きさは違う (紙は枠の中に余白付きで収まっている) ので、
+ * 枠の大きさだけで計算すると、動かせる量が実際と合わない。
+ */
+function clampAxis(offset: number, frameSize: number, contentSize: number, scale: number): number {
+  const scaled = contentSize * scale;
+  // 中身は枠の中央に置かれているので、その位置を基準にする
+  const base = ((frameSize - contentSize) / 2) * scale;
+  // 収まっているあいだは動かさず、中央のまま
+  if (scaled <= frameSize) return (frameSize - scaled) / 2 - base;
+  return clamp(offset, -base - (scaled - frameSize), -base);
+}
+
+function clampView(view: View, box: Box): View {
   const scale = clamp(view.scale, MIN_ZOOM, MAX_ZOOM);
+  if (box.contentWidth <= 0 || box.contentHeight <= 0) return { scale, x: 0, y: 0 };
   return {
     scale,
-    x: clamp(view.x, width - width * scale, 0),
-    y: clamp(view.y, height - height * scale, 0),
+    x: clampAxis(view.x, box.frameWidth, box.contentWidth, scale),
+    y: clampAxis(view.y, box.frameHeight, box.contentHeight, scale),
   };
 }
 
@@ -50,9 +74,10 @@ export interface PagePreviewProps {
   selected: boolean;
   onClose: () => void;
   onNavigate: (delta: number) => void;
-  onRotate: (delta: number) => void;
-  onDelete: () => void;
-  onToggleSelect: () => void;
+  /** 渡さなければ、そのボタンは出さない (追加前の確認など、見るだけのとき) */
+  onRotate?: (delta: number) => void;
+  onDelete?: () => void;
+  onToggleSelect?: () => void;
 }
 
 export function PagePreview({
@@ -69,9 +94,53 @@ export function PagePreview({
 }: PagePreviewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>(RESET_VIEW);
   const [loading, setLoading] = useState(true);
+  /** ページの縦横比 (幅 ÷ 高さ) */
   const [ratio, setRatio] = useState(1 / Math.SQRT2);
+  /**
+   * 枠に収まる大きさ。CSSの max-height 任せにすると、
+   * 入れ子の都合で効かないことがあり、紙の下が切れて確かめられなくなる。
+   * 収まる大きさは自分で決める。
+   */
+  const [fit, setFit] = useState<{ width: number; height: number } | null>(null);
+
+  // 枠の大きさが決まったら (画面の回転や窓の大きさ変更でも) 収まる大きさを出し直す
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const update = () => {
+      const box = frame.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) return;
+      const width = Math.min(box.width, box.height * ratio);
+      setFit({ width, height: width / ratio });
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [ratio]);
+
+  /** いまの枠と中身の大きさ。拡大の押しとどめに使う。 */
+  const measure = useCallback((): Box => {
+    const frame = frameRef.current?.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    return {
+      frameWidth: frame?.width ?? 0,
+      frameHeight: frame?.height ?? 0,
+      // offsetWidth は transform の影響を受けないので、拡大前の大きさが取れる
+      contentWidth: canvas?.offsetWidth ?? 0,
+      contentHeight: canvas?.offsetHeight ?? 0,
+    };
+  }, []);
+
+  // 収まる大きさが変わったら、いまの位置もその中へ入れ直す
+  useEffect(() => {
+    if (!fit) return;
+    setView((current) => clampView(current, measure()));
+  }, [fit, measure]);
 
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; midX: number; midY: number; view: View } | null>(null);
@@ -111,34 +180,33 @@ export function PagePreview({
     return () => controller.abort();
   }, [source.proxy, page.sourceIndex, page.rotation, page.id]);
 
+  // 焦点の面倒 (初期位置・Tabの循環・閉じたあとの戻し) はダイアログと同じ扱いにする
+  useFocusTrap(true, overlayRef, { onEscape: onClose });
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-      else if (event.key === 'ArrowRight') onNavigate(1);
+      if (event.key === 'ArrowRight') onNavigate(1);
       else if (event.key === 'ArrowLeft') onNavigate(-1);
     };
     document.addEventListener('keydown', onKeyDown);
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previous;
-    };
-  }, [onClose, onNavigate]);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onNavigate]);
 
-  const zoomBy = useCallback((factor: number) => {
-    const bounds = frameRef.current?.getBoundingClientRect();
-    setView((current) => {
-      const scale = clamp(current.scale * factor, MIN_ZOOM, MAX_ZOOM);
-      if (!bounds) return { scale, x: 0, y: 0 };
-      // 画面の中心を軸にする
-      const cx = bounds.width / 2;
-      const cy = bounds.height / 2;
-      const anchorX = (cx - current.x) / current.scale;
-      const anchorY = (cy - current.y) / current.scale;
-      return clampView({ scale, x: cx - anchorX * scale, y: cy - anchorY * scale }, bounds.width, bounds.height);
-    });
-  }, []);
+  const zoomBy = useCallback(
+    (factor: number) => {
+      const box = measure();
+      setView((current) => {
+        const scale = clamp(current.scale * factor, MIN_ZOOM, MAX_ZOOM);
+        // 画面の中心を軸にする
+        const cx = box.frameWidth / 2;
+        const cy = box.frameHeight / 2;
+        const anchorX = (cx - current.x) / current.scale;
+        const anchorY = (cy - current.y) / current.scale;
+        return clampView({ scale, x: cx - anchorX * scale, y: cy - anchorY * scale }, box);
+      });
+    },
+    [measure],
+  );
 
   const onPointerDown = (event: React.PointerEvent) => {
     // ページ送りのボタンの上から始まったときは触らない。
@@ -180,6 +248,7 @@ export function PagePreview({
 
     const bounds = frameRef.current?.getBoundingClientRect();
     if (!bounds) return;
+    const box = measure();
 
     const pinch = pinchRef.current;
     if (pinch && pointersRef.current.size >= 2) {
@@ -194,8 +263,7 @@ export function PagePreview({
       setView(
         clampView(
           { scale, x: midX - bounds.left - anchorX * scale, y: midY - bounds.top - anchorY * scale },
-          bounds.width,
-          bounds.height,
+          box,
         ),
       );
       return;
@@ -210,8 +278,7 @@ export function PagePreview({
             x: pan.view.x + (event.clientX - pan.x),
             y: pan.view.y + (event.clientY - pan.y),
           },
-          bounds.width,
-          bounds.height,
+          box,
         ),
       );
     }
@@ -224,7 +291,14 @@ export function PagePreview({
   };
 
   return createPortal(
-    <div className="preview-overlay" role="dialog" aria-modal="true" aria-label={`${index + 1}ページ目の拡大表示`}>
+    <div
+      className="preview-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${index + 1}ページ目の拡大表示`}
+      tabIndex={-1}
+      ref={overlayRef}
+    >
       <div className="preview-overlay__bar">
         <span className="preview-overlay__title">
           {index + 1} / {total} ・ {source.name}
@@ -251,7 +325,7 @@ export function PagePreview({
           <canvas
             className="preview-overlay__canvas"
             ref={canvasRef}
-            style={{ aspectRatio: String(ratio) }}
+            style={fit ? { width: `${fit.width}px`, height: `${fit.height}px` } : undefined}
             aria-label={`${index + 1}ページ目`}
           />
         </div>
@@ -279,13 +353,24 @@ export function PagePreview({
       </div>
 
       <div className="preview-overlay__actions">
-        <IconButton icon="rotate_left" label="左に回転" onClick={() => onRotate(-90)} />
-        <IconButton icon="rotate_right" label="右に回転" onClick={() => onRotate(90)} />
-        <Button small variant={selected ? 'tonal' : 'outlined'} icon="check" onClick={onToggleSelect}>
-          {selected ? '選択中' : '選択'}
-        </Button>
-        <Button small variant="danger" icon="delete" onClick={onDelete}>
-          削除
+        {onRotate ? (
+          <>
+            <IconButton icon="rotate_left" label="左に回転" onClick={() => onRotate(-90)} />
+            <IconButton icon="rotate_right" label="右に回転" onClick={() => onRotate(90)} />
+          </>
+        ) : null}
+        {onToggleSelect ? (
+          <Button small variant={selected ? 'tonal' : 'outlined'} icon="check" onClick={onToggleSelect}>
+            {selected ? '選択中' : '選択'}
+          </Button>
+        ) : null}
+        {onDelete ? (
+          <Button small variant="danger" icon="delete" onClick={onDelete}>
+            削除
+          </Button>
+        ) : null}
+        <Button small onClick={onClose}>
+          一覧に戻る
         </Button>
       </div>
     </div>,

@@ -629,10 +629,27 @@ console.log('\n[2e] ページの拡大表示');
     const canvas = document.querySelector('.preview-overlay__canvas');
     const frame = document.querySelector('.preview-overlay__frame').getBoundingClientRect();
     const box = canvas.getBoundingClientRect();
-    return { pixels: canvas.width, height: box.height, frameHeight: frame.height };
+    return {
+      pixels: canvas.width,
+      width: box.width,
+      height: box.height,
+      frameWidth: frame.width,
+      frameHeight: frame.height,
+    };
   });
   check('大きく描き直している', shown.pixels >= 1000, `${shown.pixels}px幅`);
   check('画面の高さをおおむね使う', shown.height > shown.frameHeight * 0.7, `${Math.round(shown.height)} / ${Math.round(shown.frameHeight)}`);
+  // 100%のときは、ページ全体が枠の中に収まっていること。
+  // 収まっていないと、下側を確かめられないまま閉じることになる。
+  check(
+    'ページ全体が枠に収まる',
+    shown.height <= shown.frameHeight + 1 && shown.width <= shown.frameWidth + 1,
+    `${Math.round(shown.width)}x${Math.round(shown.height)} / ${Math.round(shown.frameWidth)}x${Math.round(shown.frameHeight)}`,
+  );
+  check(
+    '開いた直後はキーボードの操作対象が拡大表示にある',
+    await page.evaluate(() => document.activeElement?.closest('.preview-overlay') !== null),
+  );
 
   const title = () => page.locator('.preview-overlay__title').innerText();
   check('何ページ目かが出る', (await title()).startsWith('1 / 3'), await title());
@@ -684,6 +701,29 @@ console.log('\n[2f] 追加するページを選ぶ');
   await page.waitForTimeout(800);
   check('選んだページだけが足される', (await page.locator('.page-card:visible').count()) === 5, `${await page.locator('.page-card:visible').count()}ページ`);
 
+  // 2件まとめて追加したとき、前のファイルで選んだ状態が次に残らないこと
+  await page.locator('input[type=file]:visible').first().setInputFiles([
+    { name: 'multi-a.pdf', mimeType: 'application/pdf', buffer: await makeSamplePdf(3) },
+    { name: 'multi-b.pdf', mimeType: 'application/pdf', buffer: await makeSamplePdf(2) },
+  ]);
+  await page.locator('.add-grid').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const beforeMulti = await page.locator('.page-card:visible').count();
+  await page.locator('.add-grid__item').nth(0).click();
+  await page.getByRole('button', { name: /選んだ1ページを追加/ }).click();
+  await page.waitForTimeout(1200);
+  check('1件目は選んだぶんだけ入る', (await page.locator('.page-card:visible').count()) === beforeMulti + 1);
+  await page.locator('.add-grid').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1200);
+  check(
+    '2件目に前の選択が残らない',
+    (await page.getByRole('button', { name: /選んだ\d+ページを追加/ }).count()) === 0,
+  );
+  check('2件目のページ数で出る', (await page.locator('.add-grid__item').count()) === 2);
+  await page.getByRole('button', { name: /すべて追加/ }).click();
+  await page.waitForTimeout(1200);
+  check('2件目も追加できる', (await page.locator('.page-card:visible').count()) === beforeMulti + 3);
+
   // 設定で「すべて追加」にすると確認なしになる
   await page.goto(base + '#/settings');
   await page.waitForTimeout(400);
@@ -691,6 +731,7 @@ console.log('\n[2f] 追加するページを選ぶ');
   await page.waitForTimeout(300);
   await page.goto(base + '#/organize');
   await page.waitForTimeout(600);
+  const beforeThird = await page.locator('.page-card:visible').count();
   await page.locator('input[type=file]:visible').first().setInputFiles({
     name: 'third.pdf',
     mimeType: 'application/pdf',
@@ -698,7 +739,8 @@ console.log('\n[2f] 追加するページを選ぶ');
   });
   await page.waitForTimeout(1500);
   check('設定を変えると確認なしで全ページ入る', (await page.locator('.add-grid').count()) === 0);
-  check('全ページぶん増える', (await page.locator('.page-card:visible').count()) === 7, `${await page.locator('.page-card:visible').count()}ページ`);
+  const afterThird = await page.locator('.page-card:visible').count();
+  check('全ページぶん増える', afterThird === beforeThird + 2, `${beforeThird} -> ${afterThird}`);
 
   // 既定に戻す
   await page.goto(base + '#/settings');
@@ -861,6 +903,97 @@ await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 })
   check('墨消しした範囲が黒く塗りつぶされている', isBlack, JSON.stringify(sample.inside));
   check('指定していない範囲は塗られていない', isWhite, JSON.stringify(sample.outside));
 
+}
+
+console.log('\n[3c] 当たらない範囲と、戻せること');
+{
+  // 「当たる範囲がゼロ」のまま書き出せると、何も隠れていないPDFができてしまう。
+  // 一括だけでなく、単体の墨消しでも止める。
+  await page.goto(base + '#/redact');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'single.pdf',
+    mimeType: 'application/pdf',
+    buffer: await makeSamplePdf(1),
+  });
+  await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+
+  // 1ページのPDFに「偶数ページ」の範囲を引く (どのページにも当たらない)
+  await page.locator('#scope-select').selectOption('even');
+  const box = await page.locator('.redact-viewport:visible').first().boundingBox();
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.14);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.2, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  // 「偶数ページ」の範囲は1ページ目には出ないので、一覧の側で数える
+  check('範囲は引ける', (await page.locator('.rect-list__item:visible').count()) === 1);
+  check(
+    '当たらないときは書き出せない',
+    await page.getByRole('button', { name: '墨消しして書き出す' }).first().isDisabled(),
+  );
+  const note = await page.locator('.banner--error').innerText().catch(() => '');
+  check('当たらないことを知らせる', note.includes('どのページにも当たりません'), note.slice(0, 40));
+
+  // 適用先を「全ページ」に引き直すと、そのページに出て書き出せるようになる
+  // 画面に出ていない範囲なので、一覧側の削除を使う
+  await page.locator('.rect-list__item:visible').first().getByRole('button', { name: '削除' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('#scope-select').selectOption('all');
+  const box2 = await page.locator('.redact-viewport:visible').first().boundingBox();
+  await page.mouse.move(box2.x + box2.width * 0.1, box2.y + box2.height * 0.14);
+  await page.mouse.down();
+  await page.mouse.move(box2.x + box2.width * 0.6, box2.y + box2.height * 0.2, { steps: 10 });
+  await page.mouse.up();
+  await page.waitForTimeout(400);
+  check(
+    '当たる範囲があれば書き出せる',
+    !(await page.getByRole('button', { name: '墨消しして書き出す' }).first().isDisabled()),
+  );
+
+  // 一覧から選び直しても、つまみ (選択) が消えないこと
+  await page.locator('.redact-viewport:visible').first().click({ position: { x: 10, y: 10 } });
+  await page.waitForTimeout(300);
+  await page.locator('.rect-list__item:visible').first().locator('.rect-list__label').click();
+  await page.waitForTimeout(400);
+  check('一覧から範囲を選ぶと選択が外れない', (await page.locator('.redact-handle:visible').count()) === 1);
+}
+
+console.log('\n[3d] 全部消しても戻せること');
+{
+  // 全ページ削除で操作バーごと消えると、その場で戻せなくなる。
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'wipe.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(600);
+  await page.getByRole('button', { name: 'すべて選択' }).click();
+  await page.locator('.toolbar').getByRole('button', { name: '削除', exact: true }).click();
+  await page.waitForTimeout(500);
+  check('全ページ削除できる', (await page.locator('.page-card:visible').count()) === 0);
+  check('空になっても「戻す」が残る', await page.getByRole('button', { name: /戻す/ }).first().isVisible());
+  await page.getByRole('button', { name: '元に戻す' }).click();
+  await page.waitForTimeout(500);
+  check('その場で元に戻せる', (await page.locator('.page-card:visible').count()) === 3);
+
+  // 次の検証は墨消し画面から続くので、まっさらな状態に戻しておく
+  await page.goto(base + '#/redact');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'secret.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.redact-stage__canvas:visible').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
 }
 
 console.log('\n[3b] 墨消しの取り消しとクリア');

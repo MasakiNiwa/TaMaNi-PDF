@@ -588,3 +588,17 @@
 .collapse__body > :last-child {
   margin-bottom: 0;
 }
+
+/*
+ * ツールバーの中のまとまり。
+ * ボタンが増えると何の仲間か分からなくなるので、うっすら囲って区切る。
+ */
+.toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+  border-radius: var(--shape-sm);
+  background: var(--md-surface-container-lowest);
+}

@@ -95,8 +95,14 @@ export function RedactPage() {
 
   useEffect(() => setColor(settings.defaultRedactColor), [settings.defaultRedactColor]);
 
-  // 読み込んだPDFと指定した範囲は保存していないので、閉じる前に引き止める
-  useUnloadGuard(pdf !== null);
+  /**
+   * 書き出したときの範囲。
+   *
+   * 書き出したあとも引き止めると「保存したのにまだ何かあるのか」と迷わせるので、
+   * 書き出してから変えていないあいだは引き止めない。
+   */
+  const [savedRects, setSavedRects] = useState<TemplateRect[] | null>(null);
+  useUnloadGuard(pdf !== null && rects.length > 0 && rects !== savedRects);
 
   // 画面を離れるときに pdf.js のドキュメントを解放する
   const pdfRef = useRef<LoadedPdf | null>(null);
@@ -162,6 +168,21 @@ export function RedactPage() {
 
   const pageCount = pdf?.pageCount ?? 0;
 
+  /**
+   * このPDFで実際に塗られる範囲の数。
+   *
+   * 「3ページ目のみ」の範囲を1ページのPDFに読み込むと、範囲はあるのに
+   * どこにも当たらない。そのまま書き出すと、何も隠れていないのに
+   * 画像化されたPDFができてしまうので、数えて止める。
+   */
+  const appliedCount = useMemo(() => {
+    let total = 0;
+    for (let index = 0; index < pageCount; index += 1) {
+      total += rects.filter((rect) => scopeMatches(rect.scope, index, pageCount)).length;
+    }
+    return total;
+  }, [rects, pageCount]);
+
   const visibleRects = useMemo(
     () => rects.filter((rect) => scopeMatches(rect.scope, pageIndex, pageCount)),
     [rects, pageIndex, pageCount],
@@ -220,7 +241,7 @@ export function RedactPage() {
   }, []);
 
   const runRedaction = useCallback(async () => {
-    if (!pdf || rects.length === 0) return;
+    if (!pdf || appliedCount === 0) return;
     const controller = new AbortController();
     abortRef.current = controller;
     setProgress({ done: 0, total: pdf.pageCount });
@@ -238,6 +259,7 @@ export function RedactPage() {
         signal: controller.signal,
       });
       saveBytes(bytes, `${baseName(pdf.name)}${settings.redactSuffix}.pdf`);
+      setSavedRects(rects);
       snackbar.success('墨消ししたPDFを書き出しました。');
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -249,7 +271,7 @@ export function RedactPage() {
       setProgress(null);
       abortRef.current = null;
     }
-  }, [pdf, rects, settings, snackbar]);
+  }, [pdf, rects, settings, snackbar, appliedCount]);
 
   const saveTemplate = useCallback(async () => {
     if (rects.length === 0 || !pdf) return;
@@ -486,7 +508,12 @@ export function RedactPage() {
                 variant="filled"
                 icon="download"
                 onClick={runRedaction}
-                disabled={rects.length === 0 || progress !== null}
+                disabled={appliedCount === 0 || progress !== null}
+                title={
+                  rects.length > 0 && appliedCount === 0
+                    ? 'このPDFに当たる範囲がありません (適用先を確認してください)'
+                    : undefined
+                }
               >
                 墨消しして書き出す
               </Button>
@@ -524,6 +551,13 @@ export function RedactPage() {
               2本指でつまむと拡大・縮小、そのまま2本指を動かすと表示位置を移動できます。
             </p>
 
+            {rects.length > 0 && appliedCount === 0 ? (
+              <Banner tone="error">
+                いまの{rects.length}個の範囲は、<strong>このPDFのどのページにも当たりません</strong>。
+                「適用先」を確かめてください (ページ数の少ないPDFに、後ろのページ向けの指定を読み込んだときに起きます)。
+              </Banner>
+            ) : null}
+
             <Banner tone="warning">
               出力されるPDFは<strong>画像として作り直した</strong>ものになります。
               文字検索・テキスト選択・しおり・注釈は失われます。
@@ -547,10 +581,11 @@ export function RedactPage() {
                         type="button"
                         className="rect-list__label"
                         onClick={() => {
-                          setSelectedId(rect.id);
-                          // 別のページの範囲を選んだときは、そのページを出す
+                          // 先にページを動かす。goToPage は選択を外すので、
+                          // 順番を逆にすると押した範囲の選択がすぐ消えてしまう。
                           if (rect.scope.type === 'index') goToPage(rect.scope.index);
                           else if (rect.scope.type === 'fromEnd') goToPage(pageCount - 1 - rect.scope.index);
+                          setSelectedId(rect.id);
                         }}
                         title="この範囲を選ぶ (別のページならそのページを表示)"
                       >
