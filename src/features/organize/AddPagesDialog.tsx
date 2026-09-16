@@ -3,7 +3,9 @@ import type { ThumbnailCache } from '../../core/pdf/render';
 import type { PageRef, PdfSource } from '../../core/pdf/types';
 import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
+import { Icon } from '../../ui/Icon';
 import { PageThumbnail } from '../../ui/PageThumbnail';
+import { PagePreview } from './PagePreview';
 
 /**
  * 追加しようとしているPDFの中身を見せて、入れるページを選ぶ。
@@ -30,6 +32,8 @@ export interface AddPagesDialogProps {
 
 export function AddPagesDialog({ entry, cache, remaining, onCancel, onAdd }: AddPagesDialogProps) {
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  /** 中身を大きく見ているページ (一覧のサムネイルだけでは判断しにくいため) */
+  const [zoomIndex, setZoomIndex] = useState<number | null>(null);
   const all = useMemo(() => entry.pages.map((page) => page.id), [entry.pages]);
 
   const toggle = (id: string) => {
@@ -48,18 +52,24 @@ export function AddPagesDialog({ entry, cache, remaining, onCancel, onAdd }: Add
       title={`追加するページを選ぶ (${entry.source.name})`}
       onClose={onCancel}
       actions={
+        // 選んだあとは「選んだぶんを追加」を主役にする。
+        // 「すべて追加」が強いままだと、選んだ意味を消す押し間違いを誘う。
         <>
           <Button onClick={onCancel}>このファイルは追加しない</Button>
           <Button
-            variant="tonal"
-            disabled={picked.size === 0}
-            onClick={() => onAdd(entry.pages.filter((page) => picked.has(page.id)))}
+            variant={picked.size > 0 ? 'outlined' : 'filled'}
+            onClick={() => onAdd(entry.pages)}
           >
-            選んだ{picked.size}ページを追加
-          </Button>
-          <Button variant="filled" onClick={() => onAdd(entry.pages)}>
             すべて追加 ({entry.pages.length})
           </Button>
+          {picked.size > 0 ? (
+            <Button
+              variant="filled"
+              onClick={() => onAdd(entry.pages.filter((page) => picked.has(page.id)))}
+            >
+              選んだ{picked.size}ページを追加
+            </Button>
+          ) : null}
         </>
       }
     >
@@ -89,6 +99,26 @@ export function AddPagesDialog({ entry, cache, remaining, onCancel, onAdd }: Add
               onClick={() => toggle(page.id)}
             >
               <span className="add-grid__badge">{index + 1}</span>
+              {/* 小さくて判断できないときのために、その場で大きく見られるようにする */}
+              <span
+                className="add-grid__zoom"
+                role="button"
+                tabIndex={0}
+                aria-label={`${index + 1}ページ目を大きく見る`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setZoomIndex(index);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setZoomIndex(index);
+                  }
+                }}
+              >
+                <Icon name="zoom_in" size={16} />
+              </span>
               <PageThumbnail
                 cache={cache}
                 source={entry.source}
@@ -100,6 +130,22 @@ export function AddPagesDialog({ entry, cache, remaining, onCancel, onAdd }: Add
           );
         })}
       </div>
+
+      {zoomIndex !== null && entry.pages[zoomIndex] ? (
+        <PagePreview
+          page={entry.pages[zoomIndex]}
+          source={entry.source}
+          index={zoomIndex}
+          total={entry.pages.length}
+          selected={picked.has(entry.pages[zoomIndex].id)}
+          onClose={() => setZoomIndex(null)}
+          onNavigate={(delta) => {
+            const next = zoomIndex + delta;
+            if (next >= 0 && next < entry.pages.length) setZoomIndex(next);
+          }}
+          onToggleSelect={() => toggle(entry.pages[zoomIndex].id)}
+        />
+      ) : null}
     </Dialog>
   );
 }

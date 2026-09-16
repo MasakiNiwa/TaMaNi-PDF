@@ -124,22 +124,31 @@ export function OrganizePage() {
         // 最初の読み込みは全ページ入れる。選ばせるのは「あとから足す」ときだけ。
         let hasPages = deck.pages.length > 0;
         let added = 0;
-        const queued: PendingAdd[] = [];
+        const failed: string[] = [];
+
         for (const file of files) {
-          const { source, pages } = await loadAnyFile(file);
-          const choose = settings.addPagesMode === 'choose' && hasPages && pages.length > 1;
-          if (choose) {
-            queued.push({ source, pages });
-          } else {
-            deck.addSource(source, pages);
-            added += 1;
+          // 1件ずつその場で片付ける。まとめて最後に反映すると、
+          // 途中で読めないファイルがあったときに、先に読めたぶんまで消えてしまう。
+          try {
+            const { source, pages } = await loadAnyFile(file);
+            const choose = settings.addPagesMode === 'choose' && hasPages && pages.length > 1;
+            if (choose) {
+              setPendingAdds((current) => [...current, { source, pages }]);
+            } else {
+              deck.addSource(source, pages);
+              added += 1;
+            }
             hasPages = true;
+          } catch (error) {
+            failed.push(file.name);
+            handleError(error);
           }
         }
-        if (queued.length > 0) setPendingAdds((current) => [...current, ...queued]);
+
         if (added > 0) snackbar.success(`${added}件のファイルを読み込みました。`);
-      } catch (error) {
-        handleError(error);
+        if (failed.length > 0 && added === 0 && files.length > failed.length) {
+          snackbar.error(`${failed.join('、')} は読み込めませんでした。`);
+        }
       } finally {
         setBusy(false);
       }
@@ -225,6 +234,7 @@ export function OrganizePage() {
       const bytes = await buildPdfFromPages(deck.sources, deck.pages, pageNumber);
       const name = `${baseName(firstSourceName ?? 'document')}${settings.organizeSuffix}.pdf`;
       saveBytes(bytes, name);
+      setSavedPages(deck.pages);
       snackbar.success(`${deck.pages.length}ページのPDFを書き出しました。`);
     } catch (error) {
       handleError(error);
@@ -234,8 +244,15 @@ export function OrganizePage() {
   }, [deck.pages, deck.sources, firstSourceName, settings.organizeSuffix, snackbar, handleError, pageNumber]);
 
   const hasPages = deck.pages.length > 0;
-  // 読み込んだページはどこにも保存していないので、閉じる前に引き止める
-  useUnloadGuard(hasPages);
+  /**
+   * 書き出したときの並び。
+   *
+   * 書き出したあとも引き止めると「保存したのにまだ何かあるのか」と迷わせるので、
+   * 書き出してから変えていないあいだは引き止めない。
+   * 並びは変更のたびに新しい配列になるので、同じものかどうかで見分けられる。
+   */
+  const [savedPages, setSavedPages] = useState<PageRef[] | null>(null);
+  useUnloadGuard(hasPages && deck.pages !== savedPages);
   const numberedCount = Math.max(0, deck.pages.length - (draft.skipFirst ? 1 : 0));
   const lastNumber = draft.startAt + Math.max(0, numberedCount - 1);
   // 選択なしで全ページに効くのは意外なので、回転ボタンの手前に対象を出す。
@@ -248,7 +265,11 @@ export function OrganizePage() {
 
   return (
     <div className="page">
-      {hasPages ? (
+      {/*
+        ページが無くなっても、戻せる履歴があるあいだはボタンを残す。
+        全部消したあとに戻す手立てが無くなるのがいちばん困るため。
+      */}
+      {hasPages || deck.canUndo || deck.canRedo ? (
         <AppBarSlot>
           <AppBarAction
             icon="undo"
@@ -263,6 +284,7 @@ export function OrganizePage() {
             label="クリア"
             description="読み込んだPDFをすべて破棄する"
             danger
+            disabled={deck.sources.size === 0}
             onClick={() => setConfirmClear(true)}
           />
         </AppBarSlot>
@@ -305,7 +327,9 @@ export function OrganizePage() {
       ) : (
         <>
           <div className="toolbar">
-            <span className="chip">回転の対象: {rotateTarget}</span>
+            {/* まとまりごとに囲う。ボタンが増えたときに、何の仲間かを見分けやすくするため。 */}
+            <span className="toolbar__group" role="group" aria-label="ページの編集">
+              <span className="chip">回転の対象: {rotateTarget}</span>
             <Button
               small
               variant="outlined"
@@ -322,11 +346,9 @@ export function OrganizePage() {
             >
               右に回転
             </Button>
-            <span className="toolbar__divider" />
-
-            <Button small variant="outlined" icon="note_add" onClick={addBlankPage} disabled={busy}>
-              空白ページ
-            </Button>
+              <Button small variant="outlined" icon="note_add" onClick={addBlankPage} disabled={busy}>
+                空白ページ
+              </Button>
             <Button
               small
               variant={pageNumber ? 'tonal' : 'outlined'}
@@ -338,9 +360,9 @@ export function OrganizePage() {
             >
               {pageNumber ? `ページ番号: ${PAGE_NUMBER_POSITION_LABEL[pageNumber.position]}` : 'ページ番号'}
             </Button>
-            <span className="toolbar__divider" />
+            </span>
 
-            <span className="thumb-size" role="group" aria-label="一覧の表示サイズ">
+            <span className="toolbar__group thumb-size" role="group" aria-label="一覧の表示サイズ">
               <IconButton
                 icon="zoom_out"
                 label="サムネイルを小さく"
@@ -357,8 +379,8 @@ export function OrganizePage() {
                 onClick={() => stepThumbnail(1)}
               />
             </span>
-            <span className="toolbar__divider" />
 
+            <span className="toolbar__group" role="group" aria-label="選んだページへの操作">
             {selected.size > 0 ? (
               <>
                 <Button small variant="outlined" icon="file_copy" onClick={() => deck.duplicatePages(selected)}>
@@ -385,6 +407,7 @@ export function OrganizePage() {
                 すべて選択
               </Button>
             )}
+            </span>
 
             {/* 書き出しは上に置く。ページ数が多いと、下まで送るのが手間になるため。 */}
             <span className="spacer" />
@@ -452,11 +475,15 @@ export function OrganizePage() {
 
       {pendingAdds[0] ? (
         <AddPagesDialog
+          // ファイルごとに作り直す。前のファイルで選んだ状態が残ると、
+          // 件数の表示と実際に入るページが食い違う。
+          key={pendingAdds[0].source.id}
           entry={pendingAdds[0]}
           cache={deck.thumbnails}
           remaining={pendingAdds.length - 1}
           onCancel={() => resolvePendingAdd(null)}
           onAdd={(pages) => {
+            if (pages.length === 0) return;
             resolvePendingAdd(pages);
             snackbar.success(`${pages.length}ページを追加しました。`);
           }}
