@@ -2043,11 +2043,14 @@ console.log('\n[7] サイズ圧縮');
   await page.reload({ waitUntil: 'load' });
   await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
   await page.locator('input[type=file]:visible').first().setInputFiles({
-    name: 'heavy-scan.pdf',
+    // 長いファイル名にしておく (見出しが長くても拡大表示が画面からはみ出さないことを確かめる)。
+    // 英数字だけにしているのは、テスト用のブラウザが日本語のダウンロード名を
+    // 「download」に置き換えてしまい、保存の確認ができなくなるため (実機では日本語のまま保存される)。
+    name: 'heavy-scan 2026-09-22 06_18_25 monthly report for the accounting team_edited.pdf',
     mimeType: 'application/pdf',
     buffer: heavyPdf,
   });
-  await page.getByText('現在: heavy-scan.pdf').waitFor({ timeout: 20_000 });
+  await page.getByText('現在: heavy-scan 2026-09-22').waitFor({ timeout: 20_000 });
   check('読み込んだPDFの大きさが出る', (await page.locator('.dropzone:visible').innerText()).includes('3ページ'));
 
   // すでに目安より小さいときは、圧縮を勧めない
@@ -2085,11 +2088,18 @@ console.log('\n[7] サイズ圧縮');
         canvas.bottom <= frame.bottom + 0.5,
       ratio: canvas.width / canvas.height,
       navs: document.querySelectorAll('.preview-overlay__nav').length,
+      overlayWidth: document.querySelector('.preview-overlay').getBoundingClientRect().width,
+      closeRight: document.querySelector('.preview-overlay__bar [aria-label="閉じる"]').getBoundingClientRect().right,
     };
   });
   check('スマホ: 圧縮後の拡大表示で紙全体が見える', fitBox.inside);
   check('スマホ: 拡大表示の縦横比が崩れない', Math.abs(fitBox.ratio - 595.28 / 841.89) < 0.01, fitBox.ratio.toFixed(3));
   check('1ページだけのときはページ送りを出さない', fitBox.navs === 0, `${fitBox.navs}個`);
+  check(
+    'スマホ: ファイル名が長くても拡大表示が画面幅に収まる',
+    fitBox.overlayWidth <= 412 && fitBox.closeRight <= 412,
+    `幅${Math.round(fitBox.overlayWidth)}px / 閉じる${Math.round(fitBox.closeRight)}px`,
+  );
   await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForTimeout(300);

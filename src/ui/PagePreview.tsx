@@ -319,7 +319,6 @@ export function PagePreview({
         <span className="preview-overlay__title">
           {index + 1} / {total} ・ {source.name}
         </span>
-        <span className="spacer" />
         <IconButton icon="zoom_out" label="縮小" onClick={() => zoomBy(1 / 1.6)} />
         <span className="preview-overlay__zoom">{Math.round(view.scale * 100)}%</span>
         <IconButton icon="zoom_in" label="拡大" onClick={() => zoomBy(1.6)} />
