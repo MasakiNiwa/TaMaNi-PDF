@@ -111,9 +111,16 @@ export function PagePreview({
     const frame = frameRef.current;
     if (!frame) return;
     const update = () => {
-      const box = frame.getBoundingClientRect();
-      if (box.width <= 0 || box.height <= 0) return;
-      const width = Math.min(box.width, box.height * ratio);
+      // 枠の余白 (padding) を除いた、紙を置ける内側の大きさで決める。
+      // 外側の大きさで決めると紙が余白ぶん (左右16px) 大きくなり、
+      // 端末によっては右端が枠の外に出て切れて見えた。
+      const style = getComputedStyle(frame);
+      const width0 =
+        frame.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const height0 =
+        frame.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      if (width0 <= 0 || height0 <= 0) return;
+      const width = Math.min(width0, height0 * ratio);
       setFit({ width, height: width / ratio });
     };
     update();
@@ -125,11 +132,13 @@ export function PagePreview({
 
   /** いまの枠と中身の大きさ。拡大の押しとどめに使う。 */
   const measure = useCallback((): Box => {
-    const frame = frameRef.current?.getBoundingClientRect();
+    // 動かす基準は、紙を載せている内側の箱 (枠の余白を除いた範囲)。
+    // 拡大の原点もこの箱の左上なので、枠の外寸で計算すると拡大時に端が余白ぶんずれる。
+    const inner = canvasRef.current?.parentElement;
     const canvas = canvasRef.current;
     return {
-      frameWidth: frame?.width ?? 0,
-      frameHeight: frame?.height ?? 0,
+      frameWidth: inner?.offsetWidth ?? 0,
+      frameHeight: inner?.offsetHeight ?? 0,
       // offsetWidth は transform の影響を受けないので、拡大前の大きさが取れる
       contentWidth: canvas?.offsetWidth ?? 0,
       contentHeight: canvas?.offsetHeight ?? 0,
@@ -246,8 +255,15 @@ export function PagePreview({
       pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     }
 
-    const bounds = frameRef.current?.getBoundingClientRect();
-    if (!bounds) return;
+    const frame = frameRef.current;
+    if (!frame) return;
+    // 拡大の原点は内側の箱の左上 (枠の余白の内側) なので、その位置を基準にする
+    const rect = frame.getBoundingClientRect();
+    const style = getComputedStyle(frame);
+    const bounds = {
+      left: rect.left + parseFloat(style.paddingLeft),
+      top: rect.top + parseFloat(style.paddingTop),
+    };
     const box = measure();
 
     const pinch = pinchRef.current;
@@ -331,7 +347,12 @@ export function PagePreview({
         </div>
         {loading ? <span className="preview-overlay__loading">描いています…</span> : null}
 
-        {/* ページ送りは左右の端に置く。下に並べると小さい画面で折り返すため。 */}
+        {/*
+          ページ送りは左右の端に置く。下に並べると小さい画面で折り返すため。
+          1ページしかないときは出さない (押せないボタンが紙の端を隠すだけになる)。
+        */}
+        {total > 1 ? (
+          <>
         <span className="preview-overlay__nav preview-overlay__nav--prev">
           <IconButton
             icon="chevron_left"
@@ -350,6 +371,8 @@ export function PagePreview({
             onClick={() => onNavigate(1)}
           />
         </span>
+          </>
+        ) : null}
       </div>
 
       <div className="preview-overlay__actions">
