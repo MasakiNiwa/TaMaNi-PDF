@@ -5,7 +5,7 @@ import { Button } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
 import { PageThumbnail } from '../../ui/PageThumbnail';
-import { PagePreview } from './PagePreview';
+import { PagePreview } from '../../ui/PagePreview';
 
 /**
  * 追加しようとしているPDFの中身を見せて、入れるページを選ぶ。

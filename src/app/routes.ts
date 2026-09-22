@@ -1,6 +1,6 @@
 import type { IconName } from '../ui/Icon';
 
-export type RouteId = 'home' | 'organize' | 'redact' | 'batch' | 'settings' | 'help';
+export type RouteId = 'home' | 'organize' | 'redact' | 'batch' | 'compress' | 'settings' | 'help';
 
 export interface RouteDef {
   id: RouteId;
@@ -49,6 +49,15 @@ export const ROUTES: RouteDef[] = [
     navLabel: '一括',
     icon: 'layers',
     description: '同じ書式のPDFを、同じ場所でまとめて隠す。毎月届く書類などに。',
+    inNav: true,
+  },
+  {
+    id: 'compress',
+    path: '/compress',
+    label: 'サイズ圧縮',
+    navLabel: '圧縮',
+    icon: 'compress',
+    description: '大きすぎるPDFを軽くする。「上限に引っかかって出せない」ときに。',
     inNav: true,
   },
   {

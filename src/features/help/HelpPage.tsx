@@ -125,9 +125,15 @@ export function HelpPage() {
               ページ数が多くても、下までたどる必要はありません。
             </li>
           </ol>
-          <p style={{ marginBottom: 0 }}>
+          <p>
             JPEG・PNGの画像もページとして追加できます。ツールバーの「空白ページ」で白紙も足せます。
             ページ整理では中身を作り直さないので、<strong>文字は文字のまま残ります</strong>。
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            画像は取り込むときに、<strong>ふつうに読める大きさ (長辺2400px) のJPEGに刷り直して</strong>
+            います。写真やスクリーンショットをそのまま入れると、読み込みに時間がかかるうえPDFも大きくなるためです。
+            画質を落としたくないときや、もっと小さくしたいときは
+            <a href={hrefFor('settings')}>設定</a> の「画像を取り込むとき」で変えられます。
           </p>
         </div>
       </Collapsible>
@@ -199,6 +205,38 @@ export function HelpPage() {
           <Banner tone="warning">
             画像化するため、出力されたPDFは<strong>文字検索・テキスト選択ができなくなります</strong>。
             しおり・注釈・入力フォームも失われます。元のPDFは必ず手元に残しておいてください。
+          </Banner>
+        </div>
+      </Collapsible>
+
+      <Collapsible title="サイズ圧縮の使い方" icon="compress">
+        <div className="stack">
+          <div className="card card--outlined">
+            <p style={{ marginTop: 0 }}>
+              「PDFが大きすぎて、システムの上限に引っかかって出せない」ときのための機能です。
+              写真やスキャンでできたPDFは、中身の画像が必要以上に精細なことが多く、
+              読める品質まで刷り直すだけで大きく軽くなります。
+            </p>
+            <ol style={{ paddingLeft: '1.2em' }}>
+              <li>PDFを1つ読み込みます。</li>
+              <li>
+                <strong>「大きさで決める」</strong>で、収めたい大きさ (1〜10MB) を選びます。
+                届くまで画質を一段ずつ落として、自動で何回か試します。
+                画質を自分で決めたいときは「画質で決める」に切り替えてください。
+              </li>
+              <li>「圧縮する」を押すと、元と圧縮後を並べて見比べられます。押すと大きく表示できます。</li>
+              <li>仕上がりに納得できたら「保存する」で端末に保存します。</li>
+            </ol>
+            <p style={{ marginBottom: 0 }}>
+              目安のサイズに届かなかったときは、その旨を表示します。ページ数が多いPDFは、
+              <a href={hrefFor('organize')}>ページ整理</a> で分けてから圧縮すると通せることがあります。
+            </p>
+          </div>
+          <Banner tone="warning">
+            圧縮は墨消しと同じで、<strong>中身を画像として刷り直します</strong>。
+            文字検索・テキスト選択・しおり・注釈は失われます。
+            文字だけで作られたPDFはもともと小さいので、圧縮しても<strong>かえって大きくなることがあります</strong>。
+            そのときは「小さくなりませんでした」と表示するので、元のPDFをそのままお使いください。
           </Banner>
         </div>
       </Collapsible>

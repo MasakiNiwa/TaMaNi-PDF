@@ -4,6 +4,7 @@ import { useTemplates } from '../../app/TemplatesContext';
 import { APP_NAME, APP_VERSION, BUILD_DATE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../../app/version';
 import {
   DPI_CHOICES,
+  IMAGE_IMPORT_LABEL,
   THUMBNAIL_SIZES,
   THUMBNAIL_SIZE_LABEL,
 } from '../../core/storage/settings';
@@ -142,6 +143,22 @@ export function SettingsPage() {
               <option value="all">すべて追加する</option>
             </select>
           </SettingRow>
+
+          <SettingRow
+            title="画像を取り込むとき"
+            description="JPEG・PNGをページにするときの画質です。「元のまま」以外は、ブラウザで一度刷り直してから入れるので、取り込みが速くPDFも小さくなります。"
+          >
+            <select
+              className="select"
+              value={settings.imageImport}
+              onChange={(event) => update({ imageImport: event.target.value as typeof settings.imageImport })}
+              aria-label="画像を取り込むとき"
+            >
+              <option value="balanced">{IMAGE_IMPORT_LABEL.balanced} ・ 長辺2400px / 画質82%</option>
+              <option value="small">{IMAGE_IMPORT_LABEL.small} ・ 長辺1600px / 画質68%</option>
+              <option value="original">{IMAGE_IMPORT_LABEL.original} ・ 画質は落とさない (遅い・大きい)</option>
+            </select>
+          </SettingRow>
         </div>
       </section>
 
@@ -229,6 +246,15 @@ export function SettingsPage() {
               maxLength={20}
               onChange={(event) => update({ redactSuffix: event.target.value })}
               aria-label="墨消しの接尾辞"
+            />
+          </SettingRow>
+          <SettingRow title="サイズ圧縮の接尾辞" description="例: 資料_small.pdf">
+            <input
+              className="input"
+              value={settings.compressSuffix}
+              maxLength={20}
+              onChange={(event) => update({ compressSuffix: event.target.value })}
+              aria-label="サイズ圧縮の接尾辞"
             />
           </SettingRow>
         </div>

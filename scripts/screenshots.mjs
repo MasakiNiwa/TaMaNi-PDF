@@ -135,6 +135,7 @@ await shoot('desktop-home', { width: 1280, height: 900, route: '' });
 await shoot('desktop-organize', { width: 1280, height: 1000, route: '#/organize', setup: loadIntoOrganize });
 await shoot('desktop-redact', { width: 1280, height: 1000, route: '#/redact', setup: loadIntoRedact });
 await shoot('desktop-batch', { width: 1280, height: 900, route: '#/batch' });
+await shoot('desktop-compress', { width: 1280, height: 900, route: '#/compress' });
 await shoot('desktop-page-number', {
   width: 1280,
   height: 1000,
