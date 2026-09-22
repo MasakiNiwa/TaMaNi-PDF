@@ -267,6 +267,12 @@
   inset: 0;
   z-index: 70;
   display: grid;
+  /*
+   * 列の幅は画面幅に固定する。
+   * 既定 (auto) だと、長いファイル名 (折り返さない見出し) に合わせて列が広がり、
+   * 表示全体が画面より横に大きくなって、紙の右側と右上のボタンが画面外に出ていた。
+   */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--md-scrim);
   backdrop-filter: blur(2px);
@@ -289,6 +295,7 @@
 }
 
 .preview-overlay__title {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
