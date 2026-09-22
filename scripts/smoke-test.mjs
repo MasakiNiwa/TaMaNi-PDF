@@ -2068,6 +2068,32 @@ console.log('\n[7] サイズ圧縮');
   check('圧縮の結果が出る', summary.includes('MB') || summary.includes('KB'), summary);
   check('前と後を見比べられる', (await page.locator('.compare-grid__item').count()) === 2);
 
+  // 圧縮後を大きく見たとき、紙全体が枠に収まり、縦横比も崩れない (スマホ幅で確かめる)
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.waitForTimeout(300);
+  await page.locator('.compare-grid__item').nth(1).click();
+  await page.locator('.preview-overlay__canvas').waitFor({ timeout: 20_000 });
+  await page.waitForTimeout(1500);
+  const fitBox = await page.evaluate(() => {
+    const canvas = document.querySelector('.preview-overlay__canvas').getBoundingClientRect();
+    const frame = document.querySelector('.preview-overlay__frame').getBoundingClientRect();
+    return {
+      inside:
+        canvas.left >= frame.left - 0.5 &&
+        canvas.right <= frame.right + 0.5 &&
+        canvas.top >= frame.top - 0.5 &&
+        canvas.bottom <= frame.bottom + 0.5,
+      ratio: canvas.width / canvas.height,
+      navs: document.querySelectorAll('.preview-overlay__nav').length,
+    };
+  });
+  check('スマホ: 圧縮後の拡大表示で紙全体が見える', fitBox.inside);
+  check('スマホ: 拡大表示の縦横比が崩れない', Math.abs(fitBox.ratio - 595.28 / 841.89) < 0.01, fitBox.ratio.toFixed(3));
+  check('1ページだけのときはページ送りを出さない', fitBox.navs === 0, `${fitBox.navs}個`);
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(300);
+
   downloads.length = 0;
   await page.getByRole('button', { name: '保存する' }).click();
   await page.waitForTimeout(3000);
@@ -2113,6 +2139,28 @@ console.log('\n[7] サイズ圧縮');
   if (textOut) {
     check('圧縮後は文字データが残らない', !pdfContainsText(textOut.body, 'KEEP-THIS-TEXT'));
   }
+}
+
+console.log('\n[7b] ナビの並びと設定の行');
+{
+  const navOrder = await page.locator('.nav-rail .nav-item').allInnerTexts();
+  check(
+    '「圧縮」は「整理」と「墨消し」の間',
+    navOrder.map((t) => t.trim()).join(',').startsWith('ホーム,整理,圧縮,墨消し'),
+    navOrder.join(','),
+  );
+
+  // 選択肢の文言が長くても、項目名と説明が細く押しつぶされない (スマホ幅)
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  const row = page.locator('.switch-row').filter({ hasText: '画像を取り込むとき' });
+  await row.waitFor({ timeout: 20_000 });
+  const textBox = await row.locator('.switch-row__text').boundingBox();
+  const controlBox = await row.locator('.switch-row__control').boundingBox();
+  check('設定: 説明が細く押しつぶされない', textBox.width >= 200, `${Math.round(textBox.width)}px`);
+  check('設定: 入力欄が横にはみ出さない', controlBox.x + controlBox.width <= 412, `${Math.round(controlBox.x + controlBox.width)}px`);
+  await page.setViewportSize({ width: 1280, height: 900 });
 }
 
 console.log('\n[6] 通信とエラー');

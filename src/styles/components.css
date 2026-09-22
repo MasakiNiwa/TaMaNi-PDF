@@ -227,9 +227,10 @@
 
 .switch-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   padding: 12px 0;
 }
 
@@ -237,7 +238,13 @@
   border-top: 1px solid var(--md-outline-variant);
 }
 
+/*
+ * 項目名と説明は、最低でもこの幅を確保する。
+ * 選択肢の文言が長いと右の入力欄が幅を取り、説明が1文字ずつ折り返して
+ * 縦書きのようになっていた。入らないときは、入力欄のほうを次の行へ送る。
+ */
 .switch-row__text {
+  flex: 1 1 14em;
   min-width: 0;
 }
 
@@ -251,8 +258,13 @@
 }
 
 .switch-row__control {
-  flex: none;
+  flex: 0 1 auto;
   min-width: 148px;
+  max-width: 100%;
+}
+
+.switch-row__control .select {
+  max-width: 100%;
 }
 
 /* ---------- Segmented button ---------- */
