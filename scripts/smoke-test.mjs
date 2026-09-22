@@ -252,6 +252,7 @@ for (const [hash, heading] of [
   ['#/organize', 'ページ整理'],
   ['#/redact', '墨消し'],
   ['#/batch', '一括墨消し'],
+  ['#/compress', 'サイズ圧縮'],
   ['#/settings', '設定'],
   ['#/help', 'ヘルプ'],
 ]) {
@@ -747,6 +748,89 @@ console.log('\n[2f] 追加するページを選ぶ');
   await page.waitForTimeout(300);
   await page.getByLabel('PDFを追加するとき').selectOption('choose');
   await page.waitForTimeout(300);
+}
+
+console.log('\n[2g] 画像の取り込み');
+{
+  /*
+   * 画像はブラウザで作る (Node側にPNGの符号化器を持ちたくないため)。
+   * 写真やスキャンに近い、ざらつきと文字のある紙を作る。
+   */
+  const pngBase64 = await page.evaluate(async () => {
+    const width = 1240;
+    const height = 1754;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fdfdfb';
+    ctx.fillRect(0, 0, width, height);
+    const image = ctx.getImageData(0, 0, width, height);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const noise = (Math.random() * 18) | 0;
+      image.data[i] -= noise;
+      image.data[i + 1] -= noise;
+      image.data[i + 2] -= noise;
+    }
+    ctx.putImageData(image, 0, 0);
+    ctx.fillStyle = '#151515';
+    ctx.font = '36px serif';
+    for (let i = 0; i < 30; i += 1) ctx.fillText(`SCAN LINE ${i} 1,234,567`, 100, 160 + i * 52);
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'));
+    const buffer = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (const byte of buffer) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+  const pngBuffer = Buffer.from(pngBase64, 'base64');
+
+  /** 指定した取り込み設定で画像2枚を読み込み、書き出したPDFを返す */
+  const importImages = async (mode) => {
+    await page.goto(base + '#/settings');
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('select[aria-label="画像を取り込むとき"]').selectOption(mode);
+    await page.goto(base + '#/organize');
+    await page.reload({ waitUntil: 'load' });
+    await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+    await page.locator('input[type=file]:visible').first().setInputFiles([
+      { name: 'scan-1.png', mimeType: 'image/png', buffer: pngBuffer },
+      { name: 'scan-2.png', mimeType: 'image/png', buffer: pngBuffer },
+    ]);
+    await page.locator('.page-card:visible').nth(1).waitFor({ timeout: 60_000 });
+    downloads.length = 0;
+    await page.getByRole('button', { name: 'PDFを書き出す' }).first().click();
+    await page.waitForTimeout(3500);
+    return downloads.find((item) => item.name.endsWith('.pdf'));
+  };
+
+  const balanced = await importImages('balanced');
+  check('画像2枚が2ページになる', (await page.locator('.page-card:visible').count()) === 2);
+  check('画像から書き出せる', Boolean(balanced));
+
+  const small = await importImages('small');
+  check('「小さめ」でも書き出せる', Boolean(small));
+  if (balanced && small) {
+    check(
+      '「小さめ」のほうがPDFが小さい',
+      small.body.length < balanced.body.length,
+      `${small.body.length} < ${balanced.body.length}`,
+    );
+  }
+
+  const original = await importImages('original');
+  if (original && balanced) {
+    // 既定 (ほどほど) は、元のまま入れるより小さく仕上がる
+    check(
+      '既定の取り込みは「元のまま」より小さい',
+      balanced.body.length < original.body.length,
+      `${balanced.body.length} < ${original.body.length}`,
+    );
+  }
+
+  // 設定を既定へ戻しておく (このあとの節に持ち越さない)
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('select[aria-label="画像を取り込むとき"]').selectOption('balanced');
 }
 
 console.log('\n[3] 墨消し');
@@ -1914,6 +1998,121 @@ console.log('\n[5e] 入力・トリミング・壊れたテンプレート');
     '読み込まなかったテンプレートは一覧に増えない',
     (await page.locator('.template-item').count()) === countBefore,
   );
+}
+
+console.log('\n[7] サイズ圧縮');
+{
+  // 画像でできた大きめのPDFを用意する (圧縮が効く典型)
+  const scanBase64 = await page.evaluate(async () => {
+    const width = 1240;
+    const height = 1754;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+    const image = ctx.getImageData(0, 0, width, height);
+    for (let i = 0; i < image.data.length; i += 4) {
+      const noise = (Math.random() * 22) | 0;
+      image.data[i] -= noise;
+      image.data[i + 1] -= noise;
+      image.data[i + 2] -= noise;
+    }
+    ctx.putImageData(image, 0, 0);
+    ctx.fillStyle = '#101010';
+    ctx.font = '34px serif';
+    for (let i = 0; i < 28; i += 1) ctx.fillText(`INVOICE ROW ${i} 9,876,543`, 90, 150 + i * 56);
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'));
+    const buffer = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (const byte of buffer) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+  const heavyPdf = await (async () => {
+    const doc = await PDFDocument.create();
+    const image = await doc.embedPng(Buffer.from(scanBase64, 'base64'));
+    for (let i = 0; i < 3; i += 1) {
+      const sheet = doc.addPage([595.28, 841.89]);
+      sheet.drawImage(image, { x: 0, y: 0, width: 595.28, height: 841.89 });
+    }
+    return Buffer.from(await doc.save());
+  })();
+
+  await page.goto(base + '#/compress');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'heavy-scan.pdf',
+    mimeType: 'application/pdf',
+    buffer: heavyPdf,
+  });
+  await page.getByText('現在: heavy-scan.pdf').waitFor({ timeout: 20_000 });
+  check('読み込んだPDFの大きさが出る', (await page.locator('.dropzone:visible').innerText()).includes('3ページ'));
+
+  // すでに目安より小さいときは、圧縮を勧めない
+  await page.getByRole('button', { name: '10MB以下' }).click();
+  check(
+    'すでに小さいPDFには、そう伝える',
+    await page.getByText('すでに10MB以下').isVisible().catch(() => false),
+  );
+
+  await page.getByRole('button', { name: '1MB以下' }).click();
+  check(
+    '目安より大きいときは案内を出さない',
+    !(await page.getByText('すでに1MB以下').isVisible().catch(() => false)),
+  );
+  await page.getByRole('button', { name: '圧縮する' }).click();
+  await page.getByRole('heading', { name: '仕上がり' }).waitFor({ timeout: 120_000 });
+  const summary = (await page.locator('.compress-size').innerText()).replace(/\s+/g, ' ');
+  check('圧縮の結果が出る', summary.includes('MB') || summary.includes('KB'), summary);
+  check('前と後を見比べられる', (await page.locator('.compare-grid__item').count()) === 2);
+
+  downloads.length = 0;
+  await page.getByRole('button', { name: '保存する' }).click();
+  await page.waitForTimeout(3000);
+  const compressed = downloads.find((item) => item.name.endsWith('.pdf'));
+  check('圧縮したPDFを保存できる', Boolean(compressed));
+  if (compressed) {
+    check('接尾辞が付く', compressed.name.includes('_small'), compressed.name);
+    check(
+      '元より小さくなっている',
+      compressed.body.length < heavyPdf.length,
+      `${compressed.body.length} < ${heavyPdf.length}`,
+    );
+    const pages = (await PDFDocument.load(compressed.body)).getPageCount();
+    check('ページ数は変わらない', pages === 3, `${pages}ページ`);
+  }
+
+  // 文字だけのPDFは、小さくならないことをそのまま伝える (勧めない)
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'text-only.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.getByText('現在: text-only.pdf').waitFor({ timeout: 20_000 });
+  // 注意は中身を調べてから出るので、少し待ってから確かめる
+  const warned = await page
+    .getByText('文字のデータが多く含まれています')
+    .waitFor({ timeout: 20_000 })
+    .then(() => true)
+    .catch(() => false);
+  check('文字の多いPDFには先に注意が出る', warned);
+  await page.getByRole('button', { name: '圧縮する' }).click();
+  await page.getByRole('heading', { name: '仕上がり' }).waitFor({ timeout: 120_000 });
+  check(
+    '小さくならなかったときは、そう言う',
+    await page.getByText('小さくなりませんでした').first().isVisible().catch(() => false),
+  );
+
+  // 画像にし直しているので、文字はPDFから消えている
+  downloads.length = 0;
+  await page.getByRole('button', { name: '保存する' }).click();
+  await page.waitForTimeout(3000);
+  const textOut = downloads.find((item) => item.name.endsWith('.pdf'));
+  if (textOut) {
+    check('圧縮後は文字データが残らない', !pdfContainsText(textOut.body, 'KEEP-THIS-TEXT'));
+  }
 }
 
 console.log('\n[6] 通信とエラー');

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { renderPageToCanvas } from '../../core/pdf/render';
-import type { PageRef, PdfSource } from '../../core/pdf/types';
-import { Button, IconButton } from '../../ui/Button';
-import { useFocusTrap } from '../../ui/useFocusTrap';
+import { renderPageToCanvas } from '../core/pdf/render';
+import type { PageRef, PdfSource } from '../core/pdf/types';
+import { Button, IconButton } from './Button';
+import { useFocusTrap } from './useFocusTrap';
 
 /**
  * 1ページだけを画面いっぱいに出して、中身を確かめるための表示。

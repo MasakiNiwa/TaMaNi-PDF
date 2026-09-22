@@ -28,6 +28,7 @@ import {
 import { closePdf } from '../../core/pdf/pdfjs';
 import type { PageRef } from '../../core/pdf/types';
 import { createBlankSource, loadAnyFile } from '../../core/pdf/source';
+import { createLimiter } from '../../core/util/queue';
 import {
   THUMBNAIL_SIZES,
   THUMBNAIL_SIZE_LABEL,
@@ -40,11 +41,11 @@ import { Button, IconButton } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { FileDrop } from '../../ui/FileDrop';
 import { Icon } from '../../ui/Icon';
-import { Banner, EmptyState } from '../../ui/primitives';
+import { Banner, EmptyState, ProgressBar } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
 import { SortablePageCard } from './SortablePageCard';
 import { AddPagesDialog, type PendingAdd } from './AddPagesDialog';
-import { PagePreview } from './PagePreview';
+import { PagePreview } from '../../ui/PagePreview';
 import { usePageDeck } from './usePageDeck';
 import { useWindowedGrid } from './useWindowedGrid';
 
@@ -54,6 +55,8 @@ export function OrganizePage() {
   const { settings, update: updateSettings } = useSettings();
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
+  /** 読み込み中のファイル数 (写真を何枚も選んだときに、進み具合を見せる) */
+  const [loading, setLoading] = useState<{ done: number; total: number } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   // null のあいだは番号を入れない
   const [pageNumber, setPageNumber] = useState<PageNumberOptions | null>(null);
@@ -120,29 +123,51 @@ export function OrganizePage() {
   const addFiles = useCallback(
     async (files: File[]) => {
       setBusy(true);
+      setLoading({ done: 0, total: files.length });
       try {
         // 最初の読み込みは全ページ入れる。選ばせるのは「あとから足す」ときだけ。
         let hasPages = deck.pages.length > 0;
         let added = 0;
         const failed: string[] = [];
 
-        for (const file of files) {
+        /*
+         * 読み込みは何枚かまとめて進める。
+         * 写真やスクリーンショットを10枚ほど選ぶことがあり、1枚ずつ順番に待つと
+         * そのぶん待ち時間が積み上がるため。同時に走らせすぎると端末が苦しいので数を絞る。
+         * 結果は選んだ順に並べ直してから入れるので、並び順は変わらない。
+         */
+        const load = createLimiter(3);
+        const results = await Promise.all(
+          files.map((file) =>
+            load(async () => {
+              try {
+                return { ok: true as const, file, loaded: await loadAnyFile(file, settings.imageImport) };
+              } catch (error) {
+                return { ok: false as const, file, error };
+              } finally {
+                setLoading((current) => (current ? { ...current, done: current.done + 1 } : current));
+              }
+            }),
+          ),
+        );
+
+        for (const result of results) {
           // 1件ずつその場で片付ける。まとめて最後に反映すると、
           // 途中で読めないファイルがあったときに、先に読めたぶんまで消えてしまう。
-          try {
-            const { source, pages } = await loadAnyFile(file);
-            const choose = settings.addPagesMode === 'choose' && hasPages && pages.length > 1;
-            if (choose) {
-              setPendingAdds((current) => [...current, { source, pages }]);
-            } else {
-              deck.addSource(source, pages);
-              added += 1;
-            }
-            hasPages = true;
-          } catch (error) {
-            failed.push(file.name);
-            handleError(error);
+          if (!result.ok) {
+            failed.push(result.file.name);
+            handleError(result.error);
+            continue;
           }
+          const { source, pages } = result.loaded;
+          const choose = settings.addPagesMode === 'choose' && hasPages && pages.length > 1;
+          if (choose) {
+            setPendingAdds((current) => [...current, { source, pages }]);
+          } else {
+            deck.addSource(source, pages);
+            added += 1;
+          }
+          hasPages = true;
         }
 
         if (added > 0) snackbar.success(`${added}件のファイルを読み込みました。`);
@@ -150,10 +175,11 @@ export function OrganizePage() {
           snackbar.error(`${failed.join('、')} は読み込めませんでした。`);
         }
       } finally {
+        setLoading(null);
         setBusy(false);
       }
     },
-    [deck, handleError, snackbar, settings.addPagesMode],
+    [deck, handleError, snackbar, settings.addPagesMode, settings.imageImport],
   );
 
   /** 順番待ちの先頭を片付ける (追加する / 追加せず閉じる) */
@@ -318,6 +344,15 @@ export function OrganizePage() {
           }
           onFiles={addFiles}
         />
+        {/* 何枚も選んだときに「固まった?」と思わせないよう、進み具合を出す */}
+        {loading ? (
+          <div className="card card--outlined" role="status">
+            <p className="text-small" style={{ marginTop: 0, marginBottom: 8 }}>
+              読み込んでいます… {loading.done} / {loading.total} 件
+            </p>
+            <ProgressBar value={loading.done} max={loading.total} />
+          </div>
+        ) : null}
       </div>
 
       {!hasPages ? (

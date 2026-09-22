@@ -197,10 +197,23 @@
   height: 28px;
 }
 
+/* 項目が7つ並ぶと狭い画面では窮屈になるので、少しだけ詰める */
+@media (max-width: 430px) {
+  .bottom-nav .nav-item {
+    padding: 8px 2px;
+    font-size: 0.625rem;
+  }
+
+  .bottom-nav .nav-item__indicator {
+    width: 100%;
+    max-width: 44px;
+  }
+}
+
 /*
  * ナビゲーションの切り替え。
  * 幅だけで決めると、横向きのスマホでもレール表示になってしまう。
- * レールは6項目ぶんの高さを必要とするので、高さの条件も付ける。
+ * レールは項目ぶんの高さを必要とするので、高さの条件も付ける。
  */
 @media (min-width: 840px) and (min-height: 600px) {
   .nav-rail {

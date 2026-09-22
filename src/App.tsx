@@ -22,6 +22,9 @@ const RedactPage = lazy(() =>
 const BatchPage = lazy(() =>
   import('./features/batch/BatchPage').then((module) => ({ default: module.BatchPage })),
 );
+const CompressPage = lazy(() =>
+  import('./features/compress/CompressPage').then((module) => ({ default: module.CompressPage })),
+);
 
 /**
  * 作業状態を持つ画面。
@@ -33,7 +36,7 @@ const BatchPage = lazy(() =>
  * PDFは端末のメモリに置いたままになるが、外には出ない。
  * 手放したいときは各画面の「クリア」で閉じられる。
  */
-const WORKSPACE_ROUTES: RouteId[] = ['organize', 'redact', 'batch'];
+const WORKSPACE_ROUTES: RouteId[] = ['organize', 'redact', 'batch', 'compress'];
 
 function PageLoading() {
   return (
@@ -93,6 +96,11 @@ function CurrentPage() {
         {opened.includes('batch') ? (
           <Workspace id="batch" active={route.id === 'batch'}>
             <BatchPage />
+          </Workspace>
+        ) : null}
+        {opened.includes('compress') ? (
+          <Workspace id="compress" active={route.id === 'compress'}>
+            <CompressPage />
           </Workspace>
         ) : null}
         {simplePage}

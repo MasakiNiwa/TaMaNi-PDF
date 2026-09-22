@@ -11,6 +11,7 @@ export type IconName =
   | 'chevron_left'
   | 'chevron_right'
   | 'close'
+  | 'compress'
   | 'delete'
   | 'download'
   | 'drag_indicator'
@@ -54,6 +55,7 @@ const PATHS: Record<IconName, string> = {
   check: 'M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z',
   chevron_left: 'M15.4 7.4L14 6l-6 6 6 6 1.4-1.4-4.6-4.6z',
   chevron_right: 'M10 6L8.6 7.4l4.6 4.6-4.6 4.6L10 18l6-6z',
+  compress: 'M4 11h16v2H4zM11 2h2v4h3l-4 4-4-4h3zM13 22h-2v-4H8l4-4 4 4h-3z',
   close: 'M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z',
   delete: 'M7 21q-.8 0-1.4-.6T5 19V6H4V4h5V3h6v1h5v2h-1v13q0 .8-.6 1.4T17 21zm2-4h2V8H9zm4 0h2V8h-2z',
   download: 'M12 16l-5-5 1.4-1.4L11 12.2V4h2v8.2l2.6-2.6L17 11zM5 20v-5h2v3h10v-3h2v5z',
