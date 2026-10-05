@@ -22,15 +22,79 @@ export interface LoadOptions {
   password?: string;
 }
 
+/** ファイルから読み込むときの1回分の大きさ (pdf.js が必要な部分だけを順に取りに来る) */
+const RANGE_CHUNK = 1 << 20;
+
 /**
- * バイト列から PDFDocumentProxy を得る。
+ * ファイル (Blob) を、pdf.js が必要とする部分だけ切り出して渡す。
  *
- * pdf.js は渡された ArrayBuffer の所有権を奪う (detach する) ため、必ずコピーを渡す。
- * 呼び出し側は元のバイト列を pdf-lib 側でも使い続けられる。
+ * バイト列で渡すと、ファイル全体をいったん画面側のメモリに読み込み、さらに
+ * pdf.js へ渡すための複製を作る (ファイルの大きさの2倍が画面側に載る)。
+ * こちらは、pdf.js の作業役が「この範囲をください」と言ってきたときに
+ * ファイルのその部分だけを読んで渡すので、画面側には読み込み途中の一部しか載らない。
+ * 読みに行く先は端末の中のファイルで、ネットワークには出ない。
  */
-export async function openWithPdfjs(bytes: Uint8Array, options: LoadOptions = {}): Promise<PDFDocumentProxy> {
+class BlobRangeTransport extends pdfjsLib.PDFDataRangeTransport {
+  private aborted = false;
+
+  constructor(private readonly blob: Blob) {
+    super(blob.size, null);
+  }
+
+  override requestDataRange(begin: number, end: number): void {
+    void this.blob
+      .slice(begin, end)
+      .arrayBuffer()
+      .then((buffer) => {
+        if (!this.aborted) this.onDataRange(begin, new Uint8Array(buffer));
+      })
+      .catch(() => {
+        /* 読めなかった範囲は pdf.js 側の失敗として扱われる */
+      });
+  }
+
+  override abort(): void {
+    this.aborted = true;
+  }
+}
+
+/**
+ * PDFDocumentProxy を得る。
+ *
+ * - Blob (選ばれたファイルや、作ったPDF) は、必要な部分だけを順に渡す (BlobRangeTransport)
+ * - バイト列は、pdf.js が中身を手放させる (detach する) ため複製して渡す。
+ *   呼び出し側は元のバイト列を pdf-lib 側でも使い続けられる。
+ */
+export async function openWithPdfjs(
+  source: Uint8Array | Blob,
+  options: LoadOptions = {},
+): Promise<PDFDocumentProxy> {
+  if (!(source instanceof Blob)) return open(source, options);
+  try {
+    return await open(source, options);
+  } catch (error) {
+    // パスワードが要るPDFは、読み方を変えても結果は同じなのでそのまま返す
+    if ((error as { name?: string } | null)?.name === 'PasswordException') throw error;
+    // クラウドのファイルなど、あとから部分的に読み直せないものがある。
+    // そのときは、これまでどおりファイル全体を読み込んでから開く。
+    return open(new Uint8Array(await source.arrayBuffer()), options);
+  }
+}
+
+async function open(source: Uint8Array | Blob, options: LoadOptions): Promise<PDFDocumentProxy> {
+  const input =
+    source instanceof Blob
+      ? {
+          range: new BlobRangeTransport(source),
+          length: source.size,
+          rangeChunkSize: RANGE_CHUNK,
+          // 先読みで全体を取りに行かない (必要になったページの分だけ読む)
+          disableAutoFetch: true,
+          disableStream: true,
+        }
+      : { data: source.slice() };
   const task = pdfjsLib.getDocument({
-    data: bytes.slice(),
+    ...input,
     cMapUrl: assetUrl('cmaps/'),
     cMapPacked: true,
     standardFontDataUrl: assetUrl('standard_fonts/'),

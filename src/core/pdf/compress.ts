@@ -47,8 +47,14 @@ export interface CompressProgress {
   pageCount: number;
 }
 
+/** 元のPDFの大きさ (バイト) */
+function sizeOf(source: Uint8Array | Blob): number {
+  return source instanceof Blob ? source.size : source.byteLength;
+}
+
 export interface CompressParams {
-  bytes: Uint8Array;
+  /** 元のPDF。ファイル (Blob) で渡すと、必要な部分だけを順に読む */
+  source: Uint8Array | Blob;
   level: CompressLevel;
   proxy?: PDFDocumentProxy;
   onProgress?: (progress: CompressProgress) => void;
@@ -57,14 +63,14 @@ export interface CompressParams {
 
 /** 指定した強さで1回だけ圧縮する */
 export async function compressPdf({
-  bytes,
+  source,
   level,
   proxy,
   onProgress,
   signal,
-}: CompressParams): Promise<Uint8Array> {
+}: CompressParams): Promise<Blob> {
   return redactToPdf({
-    bytes,
+    source,
     proxy,
     // 隠す範囲は無い。画像化だけを行う。
     rectsForPage: () => [],
@@ -76,7 +82,8 @@ export async function compressPdf({
 }
 
 export interface CompressToTargetResult {
-  bytes: Uint8Array;
+  /** できあがったPDF */
+  pdf: Blob;
   /** 実際に採用した強さ */
   level: CompressLevel;
   /** 目安のサイズまで下げられたか */
@@ -86,7 +93,8 @@ export interface CompressToTargetResult {
 }
 
 export interface CompressToTargetParams {
-  bytes: Uint8Array;
+  /** 元のPDF。ファイル (Blob) で渡すと、必要な部分だけを順に読む */
+  source: Uint8Array | Blob;
   /** 収めたいサイズ (バイト) */
   targetBytes: number;
   proxy?: PDFDocumentProxy;
@@ -104,13 +112,14 @@ export interface CompressToTargetParams {
  * どう頑張っても届かない段はとばして、無駄な試行を減らしている。
  */
 export async function compressToTarget({
-  bytes,
+  source,
   targetBytes,
   proxy,
   onProgress,
   signal,
 }: CompressToTargetParams): Promise<CompressToTargetResult> {
-  let best: { bytes: Uint8Array; level: CompressLevel } | null = null;
+  const originalSize = sizeOf(source);
+  let best: { pdf: Blob; level: CompressLevel } | null = null;
   let previous: { size: number; level: CompressLevel } | null = null;
   let attempts = 0;
 
@@ -128,7 +137,7 @@ export async function compressToTarget({
     attempts += 1;
     const attempt = attempts;
     const result = await redactToPdf({
-      bytes,
+      source,
       proxy,
       rectsForPage: () => [],
       options: { dpi: level.dpi, format: 'jpeg', jpegQuality: level.quality },
@@ -138,18 +147,19 @@ export async function compressToTarget({
     });
 
     // いちばん小さかったものを控えておく (どの段でも届かなかったときに返す)
-    if (!best || result.byteLength < best.bytes.byteLength) best = { bytes: result, level };
+    if (!best || result.size < best.pdf.size) best = { pdf: result, level };
     // 目安に収まっても、元より大きくなっていたら終わりにしない。
     // 「圧縮したのに元より大きいPDF」を渡してしまうため。
-    if (result.byteLength <= targetBytes && result.byteLength < bytes.byteLength) {
-      return { bytes: result, level, reached: true, attempts };
+    if (result.size <= targetBytes && result.size < originalSize) {
+      return { pdf: result, level, reached: true, attempts };
     }
-    previous = { size: result.byteLength, level };
+    previous = { size: result.size, level };
   }
 
   // ここに来るのは、いちばん強い設定でも目安に届かなかったとき
-  const fallback = best ?? { bytes, level: COMPRESS_LEVELS[COMPRESS_LEVELS.length - 1] };
-  return { bytes: fallback.bytes, level: fallback.level, reached: false, attempts };
+  // (いちばん強い段は必ず試すので、best は必ず入っている)
+  if (!best) throw new Error('圧縮できませんでした。');
+  return { pdf: best.pdf, level: best.level, reached: false, attempts };
 }
 
 /**

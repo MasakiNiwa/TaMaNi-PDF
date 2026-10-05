@@ -10,7 +10,15 @@ function toBlob(bytes: Uint8Array, mime: string): Blob {
  * Blob URL はこのブラウザの中だけで完結し、ネットワークには出ない。
  */
 export function saveBytes(bytes: Uint8Array, fileName: string, mime = 'application/pdf'): void {
-  const url = URL.createObjectURL(toBlob(bytes, mime));
+  saveBlob(toBlob(bytes, mime), fileName);
+}
+
+/**
+ * Blob をそのまま保存する。
+ * 大きなPDFでも、中身を1つのバイト列に読み戻さずに渡せる。
+ */
+export function saveBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = sanitizeFileName(fileName);

@@ -11,7 +11,7 @@ import { redactToPdf, type RedactColor } from '../../core/pdf/redact';
 import { alignRect, alignSummary } from '../../core/pdf/align';
 import { capturePageAnchor, estimateTemplateAlignment } from '../../core/pdf/templateAlign';
 import { scopeLabel, scopeMatches, type PageScope, type TemplateRect } from '../../core/storage/templates';
-import { saveBytes } from '../../core/util/download';
+import { saveBlob } from '../../core/util/download';
 import { baseName } from '../../core/util/format';
 import { createId } from '../../core/util/id';
 import { AppBarAction } from '../../ui/AppBarAction';
@@ -62,7 +62,8 @@ function toScope(choice: ScopeChoice, pageIndex: number): PageScope {
 
 interface LoadedPdf {
   name: string;
-  bytes: Uint8Array;
+  /** 選ばれたファイル。中身は pdf.js が必要な部分だけを順に読む */
+  file: File;
   proxy: PDFDocumentProxy;
   pageCount: number;
 }
@@ -118,10 +119,10 @@ export function RedactPage() {
   const openFile = useCallback(
     async (file: File) => {
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const proxy = await openWithPdfjs(bytes);
+        // ファイル全体を読み込まず、pdf.js が必要な部分だけを順に読む
+        const proxy = await openWithPdfjs(file);
         void closePdf(pdfRef.current?.proxy);
-        setPdf({ name: file.name, bytes, proxy, pageCount: proxy.numPages });
+        setPdf({ name: file.name, file, proxy, pageCount: proxy.numPages });
         setPageIndex(0);
         history.reset([]);
         setSelectedId(null);
@@ -246,8 +247,8 @@ export function RedactPage() {
     abortRef.current = controller;
     setProgress({ done: 0, total: pdf.pageCount });
     try {
-      const bytes = await redactToPdf({
-        bytes: pdf.bytes,
+      const output = await redactToPdf({
+        source: pdf.file,
         proxy: pdf.proxy,
         rectsForPage: (index, count) => rects.filter((rect) => scopeMatches(rect.scope, index, count)),
         options: {
@@ -258,7 +259,7 @@ export function RedactPage() {
         onProgress: ({ pageIndex: done, pageCount: total }) => setProgress({ done, total }),
         signal: controller.signal,
       });
-      saveBytes(bytes, `${baseName(pdf.name)}${settings.redactSuffix}.pdf`);
+      saveBlob(output, `${baseName(pdf.name)}${settings.redactSuffix}.pdf`);
       setSavedRects(rects);
       snackbar.success('墨消ししたPDFを書き出しました。');
     } catch (error) {

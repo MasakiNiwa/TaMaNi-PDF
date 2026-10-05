@@ -102,7 +102,7 @@ export async function measureSpeed(
   try {
     // 最初の1回は、作業役の立ち上げなどが混ざるので数えない
     setPerfPreferences({ parallel: 1, gpu: 'off' });
-    await redactToPdf({ bytes: sample, rectsForPage: () => [], lanes: 1 });
+    await redactToPdf({ source: sample, rectsForPage: () => [], lanes: 1 });
 
     for (const [at, combo] of combos.entries()) {
       onProgress?.(at, combos.length);
@@ -110,7 +110,7 @@ export async function measureSpeed(
       const times: number[] = [];
       for (let round = 0; round < 2; round += 1) {
         const started = performance.now();
-        await redactToPdf({ bytes: sample, rectsForPage: () => [], lanes: combo.lanes });
+        await redactToPdf({ source: sample, rectsForPage: () => [], lanes: combo.lanes });
         times.push(performance.now() - started);
       }
       cases.push({ lanes: combo.lanes, gpu: combo.gpu === 'auto', ms: Math.round(Math.min(...times)) });

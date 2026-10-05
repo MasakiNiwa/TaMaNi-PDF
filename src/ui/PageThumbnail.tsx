@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ThumbnailCache } from '../core/pdf/render';
-import type { PdfSource } from '../core/pdf/types';
+import type { ViewSource } from '../core/pdf/types';
 import { useInView } from './useInView';
 
 /** サムネイル枠の縦横比 (高さ ÷ 幅)。A4縦より少し余裕を持たせている。 */
@@ -8,7 +8,7 @@ const BOX_RATIO = 1.35;
 
 export interface PageThumbnailProps {
   cache: ThumbnailCache;
-  source: PdfSource;
+  source: ViewSource;
   pageIndex: number;
   /** 追加の回転角。CSSで見せるだけなので回しても再描画しない。 */
   rotation?: number;

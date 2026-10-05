@@ -15,8 +15,8 @@ import {
 import { PdfUserError } from '../../core/pdf/errors';
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from '../../core/pdf/pdfjs';
 import { ThumbnailCache } from '../../core/pdf/render';
-import type { PageRef, PdfSource } from '../../core/pdf/types';
-import { saveBytes } from '../../core/util/download';
+import type { PageRef, ViewSource } from '../../core/pdf/types';
+import { saveBlob } from '../../core/util/download';
 import { baseName, formatBytes } from '../../core/util/format';
 import { createId } from '../../core/util/id';
 import { AppBarAction } from '../../ui/AppBarAction';
@@ -45,35 +45,29 @@ const TARGET_CHOICES = [1, 2, 3, 5, 10] as const;
 
 interface Loaded {
   name: string;
-  bytes: Uint8Array;
+  /** 選ばれたファイル。中身は pdf.js が必要な部分だけを順に読む */
+  file: File;
   size: number;
   pageCount: number;
-  source: PdfSource;
+  source: ViewSource;
 }
 
 interface Result {
-  bytes: Uint8Array;
+  /** できあがったPDF (Blob のまま持ち、保存するときもそのまま渡す) */
+  pdf: Blob;
   level: CompressLevel;
   reached: boolean;
   /** 「大きさで決める」で作ったときの目安 (MB)。画質で決めたときは null */
   targetMb: number | null;
-  source: PdfSource;
+  source: ViewSource;
   saved: boolean;
 }
 
-function toSource(name: string, bytes: Uint8Array, proxy: PDFDocumentProxy): PdfSource {
-  return {
-    id: createId('src'),
-    kind: 'pdf',
-    name,
-    bytes,
-    pageCount: proxy.numPages,
-    proxy,
-    byteLength: bytes.byteLength,
-  };
+function toSource(name: string, proxy: PDFDocumentProxy): ViewSource {
+  return { id: createId('src'), name, proxy };
 }
 
-function firstPage(source: PdfSource): PageRef {
+function firstPage(source: ViewSource): PageRef {
   return { id: `${source.id}:0`, sourceId: source.id, sourceIndex: 0, rotation: 0 };
 }
 
@@ -136,11 +130,11 @@ export function CompressPage() {
       const file = files[0];
       if (!file) return;
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const proxy = await openWithPdfjs(bytes);
-        const source = toSource(file.name, bytes, proxy);
+        // ファイル全体を読み込まず、pdf.js が必要な部分だけを順に読む
+        const proxy = await openWithPdfjs(file);
+        const source = toSource(file.name, proxy);
         const previous = pdfRef.current;
-        const next = { name: file.name, bytes, size: bytes.byteLength, pageCount: proxy.numPages, source };
+        const next = { name: file.name, file, size: file.size, pageCount: proxy.numPages, source };
         pdfRef.current = next;
         setPdf(next);
         replaceResult(null);
@@ -183,15 +177,15 @@ export function CompressPage() {
       const outcome =
         mode === 'target'
           ? await compressToTarget({
-              bytes: pdf.bytes,
+              source: pdf.file,
               proxy: pdf.source.proxy,
               targetBytes: Math.round(targetMb * 1024 * 1024),
               onProgress: setProgress,
               signal: controller.signal,
             })
           : {
-              bytes: await compressPdf({
-                bytes: pdf.bytes,
+              pdf: await compressPdf({
+                source: pdf.file,
                 proxy: pdf.source.proxy,
                 level,
                 onProgress: setProgress,
@@ -202,17 +196,17 @@ export function CompressPage() {
             };
 
       // 仕上がりを見比べられるよう、結果も開いておく
-      const proxy = await openWithPdfjs(outcome.bytes);
+      const proxy = await openWithPdfjs(outcome.pdf);
       replaceResult({
-        bytes: outcome.bytes,
+        pdf: outcome.pdf,
         level: outcome.level,
         reached: outcome.reached,
         targetMb: mode === 'target' ? targetMb : null,
-        source: toSource(`${baseName(pdf.name)}${settings.compressSuffix}.pdf`, outcome.bytes, proxy),
+        source: toSource(`${baseName(pdf.name)}${settings.compressSuffix}.pdf`, proxy),
         saved: false,
       });
 
-      if (outcome.bytes.byteLength >= pdf.size) {
+      if (outcome.pdf.size >= pdf.size) {
         // 小さくなっていないのに「できました」と言わない
         snackbar.error('このPDFは小さくなりませんでした。もとのPDFをそのままお使いください。');
       } else if (!outcome.reached) {
@@ -234,14 +228,14 @@ export function CompressPage() {
 
   const save = useCallback(() => {
     if (!pdf || !result) return;
-    saveBytes(result.bytes, `${baseName(pdf.name)}${settings.compressSuffix}.pdf`);
+    saveBlob(result.pdf, `${baseName(pdf.name)}${settings.compressSuffix}.pdf`);
     setResult({ ...result, saved: true });
     snackbar.success('圧縮したPDFを書き出しました。');
   }, [pdf, result, settings.compressSuffix, snackbar]);
 
   const shrink = useMemo(() => {
     if (!pdf || !result) return null;
-    const after = result.bytes.byteLength;
+    const after = result.pdf.size;
     return { after, percent: Math.round((1 - after / pdf.size) * 100) };
   }, [pdf, result]);
 

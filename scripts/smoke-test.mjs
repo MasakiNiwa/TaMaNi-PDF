@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { inflateSync } from 'node:zlib';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { unzipSync } from 'fflate';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const distDir = join(root, 'dist');
@@ -121,6 +122,41 @@ function pdfContainsText(bytes, needle) {
     }
     at = end + 'endstream'.length;
   }
+}
+
+/**
+ * 少しずつ書き出したPDF (索引が表の形のもの) の骨組みを、厳しめに確かめる。
+ *
+ * pdf-lib も pdf.js も、索引 (xref) が壊れていても中身を探し直して開いてしまうので、
+ * 「開けた」だけでは書き出しの誤りに気づけない。ここでは索引の各行が指す位置に、
+ * 本当にその番号の部品が始まっているかを1つずつ見る。
+ */
+function checkXrefTable(bytes) {
+  const buffer = Buffer.from(bytes);
+  const text = buffer.toString('latin1');
+  if (!text.startsWith('%PDF-')) return { ok: false, detail: '先頭が %PDF- ではない' };
+  if (!text.trimEnd().endsWith('%%EOF')) return { ok: false, detail: '末尾が %%EOF ではない' };
+  const at = text.lastIndexOf('startxref');
+  const start = Number(text.slice(at + 'startxref'.length).trim().split(/\s+/)[0]);
+  if (text.slice(start, start + 4) !== 'xref') return { ok: false, detail: `startxref ${start} が xref を指していない` };
+  const lines = text.slice(start).split('\n');
+  const [first, count] = lines[1].trim().split(/\s+/).map(Number);
+  let checked = 0;
+  for (let i = 0; i < count; i += 1) {
+    const [offset, , kind] = lines[2 + i].trim().split(/\s+/);
+    const id = first + i;
+    if (kind !== 'n') continue;
+    const expected = `${id} 0 obj`;
+    if (text.slice(Number(offset), Number(offset) + expected.length) !== expected) {
+      return { ok: false, detail: `${id}番の位置 ${offset} に部品がない` };
+    }
+    checked += 1;
+  }
+  const trailer = lines.slice(2 + count).join('\n');
+  if (!/\/Size\s+\d+/.test(trailer) || !/\/Root\s+\d+ 0 R/.test(trailer)) {
+    return { ok: false, detail: 'trailer に Size / Root がない' };
+  }
+  return { ok: checked > 0, detail: `${checked}個の部品` };
 }
 
 /**
@@ -950,6 +986,8 @@ if (downloads[0]) {
     Math.abs(size.width - 595.28) < 1 && Math.abs(size.height - 841.89) < 1,
     `${size.width}x${size.height}`,
   );
+  const structure = checkXrefTable(downloads[0].body);
+  check('墨消しPDFの骨組み (索引と部品の位置) が正しい', structure.ok, structure.detail);
   check('隠した文字がPDFから消えている', !pdfContainsText(downloads[0].body, 'SECRET-TOP-LEFT'));
   check('残すべき文字も画像化されている', !pdfContainsText(downloads[0].body, 'KEEP-THIS-TEXT'));
 }
@@ -1177,6 +1215,20 @@ await page.waitForTimeout(300);
 await page.getByRole('button', { name: /まとめてZIPで保存/ }).click();
 await page.waitForTimeout(2000);
 check('ZIPが書き出される', downloads.some((d) => d.name.endsWith('.zip')), JSON.stringify(downloads.map((d) => d.name)));
+{
+  // ZIP は少しずつ読みながら作るので、中身が欠けずに入っているかを開いて確かめる
+  const zipped = downloads.find((d) => d.name.endsWith('.zip'));
+  if (zipped) {
+    const entries = Object.entries(unzipSync(new Uint8Array(zipped.body)));
+    check('ZIPに全ファイルが入っている', entries.length === 2, `${entries.length}件`);
+    let allValid = entries.length > 0;
+    for (const [, data] of entries) {
+      const loaded = await PDFDocument.load(data).catch(() => null);
+      if (!loaded || loaded.getPageCount() < 1 || !checkXrefTable(data).ok) allValid = false;
+    }
+    check('ZIPの中のPDFがどれも壊れていない', allValid);
+  }
+}
 
 console.log('\n[4b] テンプレートの自動位置合わせ');
 {
@@ -2118,6 +2170,8 @@ console.log('\n[7] サイズ圧縮');
     );
     const pages = (await PDFDocument.load(compressed.body)).getPageCount();
     check('ページ数は変わらない', pages === 3, `${pages}ページ`);
+    const structure = checkXrefTable(compressed.body);
+    check('圧縮したPDFの骨組みが正しい', structure.ok, structure.detail);
   }
 
   // 文字だけのPDFは、小さくならないことをそのまま伝える (勧めない)

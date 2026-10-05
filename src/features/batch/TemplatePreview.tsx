@@ -41,8 +41,7 @@ export function TemplatePreview({ file, template, autoAlign }: TemplatePreviewPr
     setState('loading');
     (async () => {
       try {
-        const bytes = new Uint8Array(await file.arrayBuffer());
-        const proxy = await openWithPdfjs(bytes);
+        const proxy = await openWithPdfjs(file);
         if (!alive) {
           void closePdf(proxy);
           return;

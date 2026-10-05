@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { renderPageToCanvas } from '../core/pdf/render';
-import type { PageRef, PdfSource } from '../core/pdf/types';
+import type { PageRef, ViewSource } from '../core/pdf/types';
 import { Button, IconButton } from './Button';
 import { useFocusTrap } from './useFocusTrap';
 
@@ -68,7 +68,7 @@ function clampView(view: View, box: Box): View {
 
 export interface PagePreviewProps {
   page: PageRef;
-  source: PdfSource;
+  source: ViewSource;
   index: number;
   total: number;
   selected: boolean;
