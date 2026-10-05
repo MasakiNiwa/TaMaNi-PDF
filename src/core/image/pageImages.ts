@@ -70,6 +70,12 @@ let avifIdle: ReturnType<typeof setTimeout> | null = null;
 let avifNextId = 1;
 /** 使われないまま、この時間が過ぎたら作業役を片付ける (書き出し器が大きいため) */
 const AVIF_IDLE_MS = 60_000;
+/**
+ * 1ページにこれ以上かかったら、止まったものとみなして知らせる。
+ * 普通は数秒で終わる (スマホで遅くても数十秒)。作業役が応答しなくなったときに、
+ * 「0%のまま動かない」状態を続けないため。
+ */
+const AVIF_PAGE_TIMEOUT_MS = 180_000;
 
 function encodeAvifInWorker(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
   const context = canvas.getContext('2d');
@@ -80,7 +86,17 @@ function encodeAvifInWorker(canvas: HTMLCanvasElement, quality: number): Promise
   const worker = avifWorker;
   const id = avifNextId++;
   return new Promise<Blob>((resolve, reject) => {
+    const watchdog = setTimeout(() => {
+      worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
+      worker.terminate();
+      if (avifWorker === worker) avifWorker = null;
+      reject(
+        new Error('AVIF の書き出しが終わりませんでした。解像度を下げるか、WebP や JPEG をお試しください。'),
+      );
+    }, AVIF_PAGE_TIMEOUT_MS);
     const cleanup = () => {
+      clearTimeout(watchdog);
       worker.removeEventListener('message', onMessage);
       worker.removeEventListener('error', onError);
       avifIdle = setTimeout(() => {

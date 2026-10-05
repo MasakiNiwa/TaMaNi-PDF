@@ -62,6 +62,16 @@ export function ImageExportDialog({
 
   const running = progress !== null;
 
+  // 動いていることが分かるよう、かかっている時間を出す (AVIF は1ページに数秒〜数十秒かかる)
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!running) return;
+    const started = Date.now();
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+
   return (
     <Dialog
       open={open}
@@ -140,8 +150,13 @@ export function ImageExportDialog({
       {running ? (
         <div style={{ marginTop: 16 }} role="status">
           <p className="text-small" style={{ margin: '0 0 6px' }}>
-            画像にしています… {progress.done} / {progress.total}
+            画像にしています… {progress.done} / {progress.total} ・ {elapsed}秒
           </p>
+          {format === 'avif' ? (
+            <p className="text-small muted" style={{ margin: '0 0 6px' }}>
+              AVIF は1ページに数秒かかります (初回は書き出し器の読み込みも入ります)。
+            </p>
+          ) : null}
           <ProgressBar value={progress.done} max={progress.total} />
         </div>
       ) : null}
