@@ -8,7 +8,7 @@ import {
   THUMBNAIL_SIZES,
   THUMBNAIL_SIZE_LABEL,
 } from '../../core/storage/settings';
-import { measureSpeed, type BenchmarkResult } from '../../core/perf/benchmark';
+import type { BenchmarkResult } from '../../core/perf/benchmark';
 import { autoParallel, deviceProfile, detectGpu } from '../../core/perf/device';
 import { buildExportFile, parseImportFile } from '../../core/storage/templates';
 import { clearAll, isStorageAvailable } from '../../core/storage/store';
@@ -45,6 +45,8 @@ export function SettingsPage() {
     setBench(null);
     setBenchProgress({ done: 0, total: 1 });
     try {
+      // 計測は pdf.js と pdf-lib を使う。設定画面を開いただけで読み込まないよう、押したときに取りに行く
+      const { measureSpeed } = await import('../../core/perf/benchmark');
       setBench(await measureSpeed((done, total) => setBenchProgress({ done, total })));
     } catch (error) {
       snackbar.error(error instanceof Error ? error.message : '測れませんでした。');
@@ -347,6 +349,36 @@ export function SettingsPage() {
                     : 'この端末では、1ページずつ・GPUなしがいちばん速いようです。'}
                   {bench.gpuWithinNoise ? ' GPUのあり・なしの差は、測るたびのぶれの範囲です。' : ''}
                 </p>
+                <div style={{ margin: '0 0 10px' }}>
+                  <Collapsible title="工程ごとの内訳" icon="info">
+                    <p className="text-small muted" style={{ marginTop: 0 }}>
+                      1回あたりの時間です。同時に進めたときは各ページの合計なので、上の時間より大きくなります。
+                      GPUで描くと「描く」は速くなっても、絵を読み戻す「画像にする」が遅くなることがあります。
+                    </p>
+                    <table className="bench-table">
+                      <thead>
+                        <tr>
+                          <th>同時に</th>
+                          <th>GPU</th>
+                          <th>描く</th>
+                          <th>画像にする</th>
+                          <th>開く・組み立て</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bench.cases.map((item) => (
+                          <tr key={`stats-${item.lanes}-${item.gpu}`}>
+                            <td>{item.lanes}</td>
+                            <td>{item.gpu ? '使う' : '使わない'}</td>
+                            <td>{(item.stats.render / 1000).toFixed(2)}秒</td>
+                            <td>{(item.stats.encode / 1000).toFixed(2)}秒</td>
+                            <td>{((item.stats.open + item.stats.assemble) / 1000).toFixed(2)}秒</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </Collapsible>
+                </div>
                 <Button
                   small
                   variant="filled"

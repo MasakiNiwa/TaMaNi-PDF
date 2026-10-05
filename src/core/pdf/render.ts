@@ -52,6 +52,8 @@ export async function renderPageToCanvas(
   return renderLimiter(async () => {
     if (options.signal?.aborted) throw new DOMException('描画が不要になりました。', 'AbortError');
     const page = await proxy.getPage(pageIndex + 1);
+    // ページを取りに行っているあいだに中止されていたら、描き始めない
+    if (options.signal?.aborted) throw new DOMException('描画が不要になりました。', 'AbortError');
     const rotation = (((page.rotate + (options.rotation ?? 0)) % 360) + 360) % 360;
     const base = page.getViewport({ scale: 1, rotation });
 
@@ -107,6 +109,12 @@ export function canvasToBlob(canvas: HTMLCanvasElement, mime: string, quality?: 
 export class ThumbnailCache {
   private readonly entries = new Map<string, string>();
   private readonly pending = new Map<string, Promise<string>>();
+  /**
+   * 片付けた回数。描いている途中で片付けられたものは、描き終わっても戻さない
+   * (クリアしたあとに、前のPDFのサムネイルがひょっこり戻ってくるのを防ぐ)。
+   */
+  private generation = 0;
+  private readonly droppedAt = new Map<string, number>();
 
   constructor(private readonly limit = 400) {}
 
@@ -125,20 +133,41 @@ export class ThumbnailCache {
     const inFlight = this.pending.get(key);
     if (inFlight) return inFlight;
 
+    const startedAt = this.generation;
     const task = (async () => {
       const canvas = await renderPageToCanvas(proxy, pageIndex, { targetWidth: width });
-      const blob = await canvasToBlob(canvas, 'image/jpeg', 0.72);
-      const url = URL.createObjectURL(blob);
-      // キャンバスを最小化して GC を助ける
-      canvas.width = 0;
-      canvas.height = 0;
-      this.evictIfNeeded();
-      this.entries.set(key, url);
-      this.pending.delete(key);
-      return url;
+      try {
+        const blob = await canvasToBlob(canvas, 'image/jpeg', 0.72);
+        const url = URL.createObjectURL(blob);
+        // 描いているあいだに片付けられていたら、キャッシュに戻さずに捨てる
+        // (片付けた回数が、描き始めたときより増えていれば、描いているあいだに片付けられた)
+        const dropped = this.droppedAt.get(sourceId) ?? -1;
+        if (dropped > startedAt) {
+          URL.revokeObjectURL(url);
+          throw new DOMException('サムネイルが不要になりました。', 'AbortError');
+        }
+        this.evictIfNeeded();
+        this.entries.set(key, url);
+        return url;
+      } finally {
+        // キャンバスを最小化して GC を助ける
+        canvas.width = 0;
+        canvas.height = 0;
+      }
     })();
 
     this.pending.set(key, task);
+    // 成功しても失敗しても、待ち合わせからは外す。
+    // 外さないと、一度失敗したページは失敗した約束を返し続け、描き直せなくなる。
+    // (この画面に残っているのが同じ約束のときだけ外す。片付けたあとの新しい依頼を消さないように)
+    void task.then(
+      () => {
+        if (this.pending.get(key) === task) this.pending.delete(key);
+      },
+      () => {
+        if (this.pending.get(key) === task) this.pending.delete(key);
+      },
+    );
     return task;
   }
 
@@ -154,6 +183,11 @@ export class ThumbnailCache {
 
   /** 指定した供給元のサムネイルを破棄する */
   dropSource(sourceId: string): void {
+    this.generation += 1;
+    this.droppedAt.set(sourceId, this.generation);
+    for (const key of [...this.pending.keys()]) {
+      if (key.startsWith(`${sourceId}:`)) this.pending.delete(key);
+    }
     for (const key of [...this.entries.keys()]) {
       if (key.startsWith(`${sourceId}:`)) {
         const url = this.entries.get(key);
@@ -164,6 +198,9 @@ export class ThumbnailCache {
   }
 
   clear(): void {
+    this.generation += 1;
+    // いま描いている途中のものは、どの供給元のものでも戻さない
+    for (const key of this.pending.keys()) this.droppedAt.set(key.split(':')[0], this.generation);
     for (const url of this.entries.values()) URL.revokeObjectURL(url);
     this.entries.clear();
     this.pending.clear();
