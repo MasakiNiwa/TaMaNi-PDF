@@ -23,7 +23,7 @@ import {
 export interface BenchmarkCase {
   lanes: number;
   gpu: boolean;
-  /** 2回測った速いほう (ミリ秒) */
+  /** 何回か測った真ん中の値 (ミリ秒) */
   ms: number;
 }
 
@@ -32,6 +32,22 @@ export interface BenchmarkResult {
   best: BenchmarkCase;
   /** 1ページずつ・GPUなしのときと比べて、何%速くなったか */
   gainPercent: number;
+  /**
+   * 同じ同時数どうしで比べて、GPUのあり・なしの差が測り方のぶれより小さいか。
+   * GPUを使えない端末 (比べていない) ときは null。
+   */
+  gpuWithinNoise: boolean | null;
+}
+
+/** 何周測るか。1周ごとにすべての組み合わせを1回ずつ測る */
+const ROUNDS = 3;
+/** これより差が小さいときは「測り方のぶれの範囲」とみなす (同じ設定でも1割前後ぶれた) */
+const NOISE = 0.1;
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
 async function makeSample(): Promise<Uint8Array> {
@@ -104,27 +120,56 @@ export async function measureSpeed(
     setPerfPreferences({ parallel: 1, gpu: 'off' });
     await redactToPdf({ source: sample, rectsForPage: () => [], lanes: 1 });
 
-    for (const [at, combo] of combos.entries()) {
-      onProgress?.(at, combos.length);
-      setPerfPreferences({ parallel: saved.parallel, gpu: combo.gpu });
-      const times: number[] = [];
-      for (let round = 0; round < 2; round += 1) {
+    /*
+     * 組み合わせを1つずつまとめて測ると、測っているあいだに端末が温まったり
+     * 充電の具合が変わったりして、あとに測ったものほど不利 (や有利) になる。
+     * そこで、全部の組み合わせを1回ずつ測る「周」を何周か回し、周ごとに順番を
+     * 逆にして偏りを打ち消す。値は周ごとの真ん中を採る (1回だけ外れた値に引きずられない)。
+     */
+    const times: number[][] = combos.map(() => []);
+    const total = combos.length * ROUNDS;
+    let done = 0;
+    for (let round = 0; round < ROUNDS; round += 1) {
+      const order = combos.map((_, index) => index);
+      if (round % 2 === 1) order.reverse();
+      for (const index of order) {
+        onProgress?.(done, total);
+        const combo = combos[index];
+        setPerfPreferences({ parallel: saved.parallel, gpu: combo.gpu });
         const started = performance.now();
         await redactToPdf({ source: sample, rectsForPage: () => [], lanes: combo.lanes });
-        times.push(performance.now() - started);
+        times[index].push(performance.now() - started);
+        done += 1;
       }
-      cases.push({ lanes: combo.lanes, gpu: combo.gpu === 'auto', ms: Math.round(Math.min(...times)) });
     }
-    onProgress?.(combos.length, combos.length);
+    onProgress?.(total, total);
+    for (const [index, combo] of combos.entries()) {
+      cases.push({ lanes: combo.lanes, gpu: combo.gpu === 'auto', ms: Math.round(median(times[index])) });
+    }
   } finally {
     setPerfPreferences(saved);
   }
 
   const baseline = cases.find((item) => item.lanes === 1 && !item.gpu) ?? cases[0];
-  const best = cases.reduce((a, b) => (b.ms < a.ms ? b : a));
+  let best = cases.reduce((a, b) => (b.ms < a.ms ? b : a));
+  // GPUありがいちばん速くても、同じ同時数のGPUなしとの差がぶれの範囲なら、GPUなしを選ぶ
+  // (確かな差がないのに、仕組みの多いほうへ切り替える理由はないため)
+  if (best.gpu) {
+    const off = cases.find((item) => !item.gpu && item.lanes === best.lanes);
+    if (off && (off.ms - best.ms) / off.ms < NOISE) best = off;
+  }
+  const gpuCases = cases.filter((item) => item.gpu);
+  const gpuWithinNoise =
+    gpuCases.length === 0
+      ? null
+      : gpuCases.every((on) => {
+          const off = cases.find((item) => !item.gpu && item.lanes === on.lanes);
+          return off ? Math.abs(on.ms - off.ms) / off.ms < NOISE : true;
+        });
   return {
     cases,
     best,
     gainPercent: Math.max(0, Math.round((1 - best.ms / baseline.ms) * 100)),
+    gpuWithinNoise,
   };
 }

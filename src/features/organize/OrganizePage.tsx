@@ -25,9 +25,10 @@ import {
   type PageNumberOptions,
   type PageNumberPosition,
 } from '../../core/pdf/pageNumber';
-import { closePdf } from '../../core/pdf/pdfjs';
+import { renderPageImages, IMAGE_FORMATS, type PageImageJob } from '../../core/image/pageImages';
+import { closePdf, openWithPdfjs, type PDFDocumentProxy } from '../../core/pdf/pdfjs';
 import type { PageRef } from '../../core/pdf/types';
-import { createBlankSource, loadAnyFile } from '../../core/pdf/source';
+import { IMAGE_ACCEPT, createBlankSource, loadAnyFile } from '../../core/pdf/source';
 import { parallelLanes } from '../../core/perf/device';
 import { createLimiter } from '../../core/util/queue';
 import {
@@ -35,7 +36,8 @@ import {
   THUMBNAIL_SIZE_LABEL,
   THUMBNAIL_WIDTH_PX,
 } from '../../core/storage/settings';
-import { saveBytes } from '../../core/util/download';
+import { saveBlob, saveBytes } from '../../core/util/download';
+import { zipBlobs } from '../../core/util/zipStream';
 import { baseName, formatBytes } from '../../core/util/format';
 import { AppBarAction } from '../../ui/AppBarAction';
 import { Button, IconButton } from '../../ui/Button';
@@ -46,6 +48,7 @@ import { Banner, EmptyState, ProgressBar } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
 import { SortablePageCard } from './SortablePageCard';
 import { AddPagesDialog, type PendingAdd } from './AddPagesDialog';
+import { ImageExportDialog } from './ImageExportDialog';
 import { PagePreview } from '../../ui/PagePreview';
 import { usePageDeck } from './usePageDeck';
 import { useWindowedGrid } from './useWindowedGrid';
@@ -271,6 +274,79 @@ export function OrganizePage() {
     }
   }, [deck.pages, deck.sources, firstSourceName, settings.organizeSuffix, snackbar, handleError, pageNumber]);
 
+  /**
+   * ページを画像で保存する。選んだページがあればそのページ、なければ全ページ。
+   *
+   * ページ番号を入れる設定のときは、番号は書き出すPDFに描くものなので、
+   * いったん全体のPDFを組み立ててから、そこから選んだページを画像にする
+   * (番号は全体の中での位置で決まるため、選んだページだけで組むとずれる)。
+   * 番号がなければ、読み込んだPDFから直接描く (組み立てを省けるぶん速い)。
+   */
+  const [imageDialogOpen, setImageDialogOpen] = useState(false);
+  const [imageProgress, setImageProgress] = useState<{ done: number; total: number } | null>(null);
+  const imageAbortRef = useRef<AbortController | null>(null);
+  const imageTargets = useMemo(() => {
+    const positions: number[] = [];
+    deck.pages.forEach((page, index) => {
+      if (selected.size === 0 || selected.has(page.id)) positions.push(index);
+    });
+    return positions;
+  }, [deck.pages, selected]);
+
+  const exportImages = useCallback(async () => {
+    if (imageTargets.length === 0) return;
+    const controller = new AbortController();
+    imageAbortRef.current = controller;
+    setImageProgress({ done: 0, total: imageTargets.length });
+    let assembled: PDFDocumentProxy | null = null;
+    try {
+      let jobs: PageImageJob[];
+      if (pageNumber) {
+        assembled = await openWithPdfjs(await buildPdfFromPages(deck.sources, deck.pages, pageNumber));
+        const proxy = assembled;
+        jobs = imageTargets.map((position) => ({ proxy, pageIndex: position, rotation: 0 }));
+      } else {
+        jobs = imageTargets.map((position) => {
+          const page = deck.pages[position];
+          const source = deck.sources.get(page.sourceId);
+          if (!source) throw new Error('読み込み済みのファイルが見つかりませんでした。');
+          return { proxy: source.proxy, pageIndex: page.sourceIndex, rotation: page.rotation };
+        });
+      }
+
+      const format = settings.imageExportFormat;
+      const blobs = await renderPageImages({
+        jobs,
+        dpi: settings.imageExportDpi,
+        format,
+        onProgress: (done, total) => setImageProgress({ done, total }),
+        signal: controller.signal,
+      });
+
+      // ファイル名は「元の名前_p03.png」。ページ数に合わせて0を足し、並べたときに順番どおりになるようにする
+      const base = baseName(firstSourceName ?? 'document');
+      const digits = String(deck.pages.length).length;
+      const names = imageTargets.map(
+        (position) => `${base}_p${String(position + 1).padStart(digits, '0')}.${IMAGE_FORMATS[format].ext}`,
+      );
+      if (blobs.length === 1) {
+        saveBlob(blobs[0], names[0]);
+      } else {
+        const zipped = await zipBlobs(blobs.map((blob, index) => ({ name: names[index], blob })));
+        saveBlob(zipped, `${base}_${IMAGE_FORMATS[format].ext}.zip`);
+      }
+      setImageDialogOpen(false);
+      snackbar.success(`${blobs.length}ページを${IMAGE_FORMATS[format].label}で保存しました。`);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') snackbar.show('画像の保存を中止しました。');
+      else handleError(error);
+    } finally {
+      void closePdf(assembled);
+      setImageProgress(null);
+      imageAbortRef.current = null;
+    }
+  }, [imageTargets, pageNumber, deck.sources, deck.pages, settings.imageExportFormat, settings.imageExportDpi, firstSourceName, snackbar, handleError]);
+
   const hasPages = deck.pages.length > 0;
   /**
    * 書き出したときの並び。
@@ -333,7 +409,7 @@ export function OrganizePage() {
 
       <div className="stack" style={{ marginBottom: 20 }}>
         <FileDrop
-          accept="application/pdf,image/jpeg,image/png"
+          accept={`application/pdf,${IMAGE_ACCEPT}`}
           multiple
           disabled={busy}
           icon={hasPages ? 'add' : 'upload'}
@@ -342,7 +418,7 @@ export function OrganizePage() {
           hint={
             hasPages
               ? undefined
-              : 'PDFだけでなく、JPEG・PNGの画像からでも始められます。複数まとめて選べます。'
+              : 'PDFだけでなく、画像 (JPEG・PNG・WebP・AVIF・HEIC) からでも始められます。複数まとめて選べます。'
           }
           onFiles={addFiles}
         />
@@ -448,6 +524,16 @@ export function OrganizePage() {
 
             {/* 書き出しは上に置く。ページ数が多いと、下まで送るのが手間になるため。 */}
             <span className="spacer" />
+            <Button
+              small
+              variant="outlined"
+              icon="image"
+              onClick={() => setImageDialogOpen(true)}
+              disabled={busy}
+              title={selected.size > 0 ? `選択した${selected.size}ページを画像で保存` : '全ページを画像で保存'}
+            >
+              画像で保存
+            </Button>
             <Button small variant="filled" icon="download" onClick={exportPdf} disabled={busy}>
               PDFを書き出す
             </Button>
@@ -509,6 +595,24 @@ export function OrganizePage() {
 
         </>
       )}
+
+      <ImageExportDialog
+        open={imageDialogOpen}
+        targetLabel={selected.size > 0 ? `選択した${imageTargets.length}ページ` : `全${imageTargets.length}ページ`}
+        count={imageTargets.length}
+        format={settings.imageExportFormat}
+        dpi={settings.imageExportDpi}
+        progress={imageProgress}
+        onChange={({ format, dpi }) =>
+          updateSettings({
+            ...(format ? { imageExportFormat: format } : {}),
+            ...(dpi ? { imageExportDpi: dpi } : {}),
+          })
+        }
+        onExport={() => void exportImages()}
+        onAbort={() => imageAbortRef.current?.abort()}
+        onClose={() => setImageDialogOpen(false)}
+      />
 
       {pendingAdds[0] ? (
         <AddPagesDialog

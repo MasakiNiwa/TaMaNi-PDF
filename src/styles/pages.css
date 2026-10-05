@@ -525,3 +525,21 @@
   font-size: 0.8125rem;
   font-weight: 600;
 }
+
+.choice--disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 枠線も余白も持たない fieldset (選択肢をまとめて無効にするためだけに使う) */
+.plain-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.plain-fieldset > legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
