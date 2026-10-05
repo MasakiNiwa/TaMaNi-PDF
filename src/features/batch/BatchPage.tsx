@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { zipSync } from 'fflate';
 import { AppBarSlot } from '../../app/AppBarSlot';
 import { useSettings } from '../../app/SettingsContext';
 import { useUnloadGuard } from '../../app/useUnloadGuard';
@@ -10,7 +9,8 @@ import { closePdf, openWithPdfjs } from '../../core/pdf/pdfjs';
 import { redactToPdf } from '../../core/pdf/redact';
 import { estimateTemplateAlignment } from '../../core/pdf/templateAlign';
 import { countAppliedRects, rectsForPage, scopeLabel, unmatchedScopes } from '../../core/storage/templates';
-import { saveBytes } from '../../core/util/download';
+import { saveBlob } from '../../core/util/download';
+import { zipBlobs } from '../../core/util/zipStream';
 import { baseName, formatBytes, sanitizeFileName } from '../../core/util/format';
 import { createId } from '../../core/util/id';
 import { AppBarAction } from '../../ui/AppBarAction';
@@ -44,7 +44,8 @@ interface Job {
   /** この結果を作ったときの条件 */
   condition?: string;
   outputName?: string;
-  output?: Uint8Array;
+  /** できあがったPDF。Blob にしておくと、大きくてもブラウザが管理してくれる */
+  output?: Blob;
 }
 
 export function BatchPage() {
@@ -122,8 +123,8 @@ export function BatchPage() {
       setPageProgress(null);
       let proxy;
       try {
-        const bytes = new Uint8Array(await job.file.arrayBuffer());
-        proxy = await openWithPdfjs(bytes);
+        // ファイル全体を読み込まず、pdf.js が必要な部分だけを順に読む
+        proxy = await openWithPdfjs(job.file);
 
         // 当たる範囲が1つもないまま画像化すると、
         // 「墨消しできたつもりで、何も隠れていないPDF」が出来てしまう。
@@ -148,7 +149,7 @@ export function BatchPage() {
             : alignSummary(alignment),
         });
         const output = await redactToPdf({
-          bytes,
+          source: job.file,
           proxy,
           rectsForPage: (pageIndex, pageCount) =>
             rectsForPage(template, pageIndex, pageCount).map((rect) => alignRect(rect, alignment)),
@@ -165,7 +166,7 @@ export function BatchPage() {
           output,
           outputName: `${baseName(job.file.name)}${settings.redactSuffix}.pdf`,
           message:
-            formatBytes(output.byteLength) +
+            formatBytes(output.size) +
             (missing.length > 0
               ? ` ・ 当たらない指定あり (${missing.map(scopeLabel).join('・')})`
               : ''),
@@ -211,9 +212,10 @@ export function BatchPage() {
   useUnloadGuard(running || completed.length > 0);
   const previewJob = jobs.find((job) => job.id === previewJobId);
 
-  const downloadAllAsZip = useCallback(() => {
+  const [zipping, setZipping] = useState(false);
+  const downloadAllAsZip = useCallback(async () => {
     if (completed.length === 0) return;
-    const entries: Record<string, Uint8Array> = {};
+    const entries: Record<string, Blob> = {};
     for (const job of completed) {
       if (!job.output) continue;
       let name = sanitizeFileName(job.outputName ?? `${baseName(job.file.name)}.pdf`);
@@ -225,10 +227,17 @@ export function BatchPage() {
       }
       entries[name] = job.output;
     }
-    // PDFは既に圧縮済みなので再圧縮せず格納だけする (level 0)
-    const zipped = zipSync(entries, { level: 0 });
-    saveBytes(zipped, `tamani-pdf_redacted_${completed.length}files.zip`, 'application/zip');
-  }, [completed]);
+    // PDFは既に圧縮済みなので再圧縮せず格納だけする。少しずつ読みながらまとめる。
+    setZipping(true);
+    try {
+      const zipped = await zipBlobs(Object.entries(entries).map(([name, blob]) => ({ name, blob })));
+      saveBlob(zipped, `tamani-pdf_redacted_${completed.length}files.zip`);
+    } catch (error) {
+      snackbar.error(error instanceof Error ? error.message : 'ZIPを作れませんでした。');
+    } finally {
+      setZipping(false);
+    }
+  }, [completed, snackbar]);
 
   return (
     <div className="page">
@@ -337,7 +346,7 @@ export function BatchPage() {
                         icon="download"
                         label={`${job.outputName} を保存`}
                         small
-                        onClick={() => saveBytes(job.output!, job.outputName!)}
+                        onClick={() => saveBlob(job.output!, job.outputName!)}
                       />
                     ) : null}
                     <IconButton
@@ -423,10 +432,10 @@ export function BatchPage() {
               <Button
                 variant="tonal"
                 icon="folder_zip"
-                disabled={completed.length === 0 || running}
-                onClick={downloadAllAsZip}
+                disabled={completed.length === 0 || running || zipping}
+                onClick={() => void downloadAllAsZip()}
               >
-                まとめてZIPで保存 ({completed.length})
+                {zipping ? 'ZIPにまとめています…' : `まとめてZIPで保存 (${completed.length})`}
               </Button>
             </div>
           </section>

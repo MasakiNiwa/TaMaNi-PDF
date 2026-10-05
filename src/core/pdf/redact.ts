@@ -3,6 +3,7 @@ import { yieldToUi } from '../util/queue';
 import { PRODUCER } from './assemble';
 import { toUserError } from './errors';
 import { context2d, parallelLanes } from '../perf/device';
+import { ImagePdfWriter } from './imagePdfWriter';
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from './pdfjs';
 import { canvasToBlob, clampScale } from './render';
 
@@ -48,7 +49,11 @@ export interface RedactProgress {
 }
 
 export interface RedactParams {
-  bytes: Uint8Array;
+  /**
+   * 元のPDF。ファイル (Blob) で渡すと、必要な部分だけを順に読む。
+   * proxy を渡したときは使わない。
+   */
+  source: Uint8Array | Blob;
   /** ページ番号 (0始まり) ごとの墨消し範囲を返す */
   rectsForPage: (pageIndex: number, pageCount: number) => readonly NormalizedRect[];
   options?: Partial<RedactOptions>;
@@ -70,6 +75,10 @@ function assertNotAborted(signal?: AbortSignal): void {
 /** 1ページぶんの仕上がり (画像と、元ページの大きさ) */
 interface RasterPage {
   image: Uint8Array;
+  /** 画像の画素数 */
+  pixelWidth: number;
+  pixelHeight: number;
+  /** 元ページの大きさ (ポイント) */
   width: number;
   height: number;
 }
@@ -116,7 +125,13 @@ async function rasterizePage(
   }
 
   const blob = await canvasToBlob(canvas, mime, quality);
-  return { image: new Uint8Array(await blob.arrayBuffer()), width: base.width, height: base.height };
+  return {
+    image: new Uint8Array(await blob.arrayBuffer()),
+    pixelWidth: canvas.width,
+    pixelHeight: canvas.height,
+    width: base.width,
+    height: base.height,
+  };
 }
 
 /**
@@ -142,27 +157,35 @@ async function rasterizePage(
  * 4コアの端末ではかえって遅かった (docs/SPEC.md の計測を参照)。
  * そのため作業役は1つのまま、流すページの数だけを増やしている。
  *
- * できあがった画像はページ番号の順に並べ直してから組み立てるので、
- * 出力は1ページずつ進めたときと同じになる。
+ * ## 少しずつ書き出す
+ *
+ * JPEG のときは、ページができるたびに ImagePdfWriter でPDFの部品として書き、
+ * 手元には持たない。全ページを抱えてから組み立てる形だと、ページ数の多いPDFで
+ * 出力の何倍ものメモリを使うため。出力は Blob で返す。
+ * PNG のとき (設定で選んだ場合だけ) は、PNG をPDFの形に直す処理を pdf-lib に任せるため、
+ * これまでどおり全ページそろえてから組み立てる。
  */
 export async function redactToPdf({
-  bytes,
+  source,
   rectsForPage,
   options,
   onProgress,
   signal,
   proxy,
   lanes,
-}: RedactParams): Promise<Uint8Array> {
+}: RedactParams): Promise<Blob> {
   const settings = { ...DEFAULT_REDACT_OPTIONS, ...options };
+  const streaming = settings.format === 'jpeg';
 
-  const doc = proxy ?? (await openWithPdfjs(bytes));
+  const doc = proxy ?? (await openWithPdfjs(source));
   const pageCount = doc.numPages;
   const laneCount = Math.max(1, Math.min(lanes ?? parallelLanes(), pageCount));
   const canvases: HTMLCanvasElement[] = [];
 
   try {
-    const results: RasterPage[] = new Array(pageCount);
+    const writer = streaming ? new ImagePdfWriter(PRODUCER) : null;
+    // PNG のときだけ、組み立てまで手元に置いておく
+    const pending: RasterPage[] = [];
     let next = 0;
     let done = 0;
     // どれか1つのレーンが失敗したら、ほかのレーンも新しいページを取らずに止める
@@ -177,7 +200,18 @@ export async function redactToPdf({
         if (index >= pageCount) return;
         next += 1;
         try {
-          results[index] = await rasterizePage(doc, index, pageCount, canvas, settings, rectsForPage);
+          const result = await rasterizePage(doc, index, pageCount, canvas, settings, rectsForPage);
+          if (writer) {
+            writer.addJpegPage(index, {
+              jpeg: result.image,
+              pixelWidth: result.pixelWidth,
+              pixelHeight: result.pixelHeight,
+              width: result.width,
+              height: result.height,
+            });
+          } else {
+            pending[index] = result;
+          }
         } catch (error) {
           failed = true;
           throw error;
@@ -194,17 +228,19 @@ export async function redactToPdf({
     if (rejected) throw rejected.reason;
     assertNotAborted(signal);
 
+    if (writer) return writer.finish();
+
     const out = await PDFDocument.create();
     out.setProducer(PRODUCER);
     out.setCreator(PRODUCER);
-    for (const result of results) {
-      const image =
-        settings.format === 'png' ? await out.embedPng(result.image) : await out.embedJpg(result.image);
+    for (const result of pending) {
+      const image = await out.embedPng(result.image);
       // ページの物理サイズは元のまま保つ
       const outPage = out.addPage([result.width, result.height]);
       outPage.drawImage(image, { x: 0, y: 0, width: result.width, height: result.height });
     }
-    return await out.save({ useObjectStreams: true });
+    const bytes = await out.save({ useObjectStreams: true });
+    return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw toUserError(error);

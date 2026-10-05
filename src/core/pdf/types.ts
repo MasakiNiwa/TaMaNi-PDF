@@ -26,6 +26,12 @@ export interface PdfSource {
 }
 
 /**
+ * 画面に出す (サムネイル・拡大表示) だけなら、これで足りる。
+ * バイト列を持たないので、ファイルから少しずつ読んだPDFや、作ったPDF (Blob) も渡せる。
+ */
+export type ViewSource = Pick<PdfSource, 'id' | 'name' | 'proxy'>;
+
+/**
  * 出力PDFを構成する1ページ分の指定。
  * 元のページを指すだけの軽い値なので、並べ替え・複製・Undo を安く実装できる。
  */
