@@ -170,7 +170,6 @@ export async function loadImageFile(
   mode: ImageImportMode = 'balanced',
 ): Promise<{ source: PdfSource; pages: PageRef[] }> {
   try {
-    const raw = new Uint8Array(await file.arrayBuffer());
     const doc = await PDFDocument.create();
     const kind = imageKind(file);
 
@@ -192,10 +191,12 @@ export async function loadImageFile(
         );
       }
       image = reencoded ? await doc.embedJpg(redrawn) : await doc.embedPng(redrawn);
-    } else if (reencoded && reencoded.byteLength < raw.byteLength) {
+    } else if (reencoded && reencoded.byteLength < file.size) {
       // 作り直したほうが大きくなるなら (もともと小さいJPEGなど) 元のまま入れる
       image = await doc.embedJpg(reencoded);
     } else {
+      // 元のまま入れるときだけ、元のファイルを読み込む (作り直したものを使うなら読まずに済む)
+      const raw = new Uint8Array(await file.arrayBuffer());
       image = kind === 'png' ? await doc.embedPng(raw) : await doc.embedJpg(raw);
     }
 

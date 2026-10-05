@@ -117,6 +117,6 @@ export function useGpu(): boolean {
  * GPUを使わないときは「よく読み出す」印を付けて、最初からCPU側に置く
  * (画像として書き出すとき、GPUから読み戻す手間が要らなくなる)。
  */
-export function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
-  return canvas.getContext('2d', { alpha: false, willReadFrequently: !useGpu() });
+export function context2d(canvas: HTMLCanvasElement, gpu: boolean = useGpu()): CanvasRenderingContext2D | null {
+  return canvas.getContext('2d', { alpha: false, willReadFrequently: !gpu });
 }

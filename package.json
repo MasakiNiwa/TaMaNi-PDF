@@ -1,7 +1,7 @@
 {
   "name": "tamani-pdf",
   "private": true,
-  "version": "0.12.1",
+  "version": "0.12.2",
   "type": "module",
   "description": "たまにPDF - たまに使うPDFツール",
   "license": "MIT",
@@ -11,6 +11,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -b",
+    "test:unit": "node scripts/unit-test.mjs",
     "test:e2e": "node scripts/copy-pdfjs-assets.mjs && vite build && node scripts/smoke-test.mjs",
     "screenshots": "node scripts/screenshots.mjs"
   },

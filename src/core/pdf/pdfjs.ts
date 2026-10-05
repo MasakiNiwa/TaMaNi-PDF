@@ -20,6 +20,18 @@ function assetUrl(path: string): string {
 export interface LoadOptions {
   /** パスワード付きPDFのパスワード */
   password?: string;
+  /** GPUで描くか。省略すると設定に従う (速さの計測では組み合わせごとに指定する) */
+  gpu?: boolean;
+}
+
+/**
+ * 開いたときに GPU で描く設定だったか。
+ * pdf.js の GPU の使い方 (enableHWA) は開くときに決まり、あとから変えられないため覚えておく。
+ */
+const openedWithGpu = new WeakMap<PDFDocumentProxy, boolean>();
+
+export function gpuOf(proxy: PDFDocumentProxy): boolean | undefined {
+  return openedWithGpu.get(proxy);
 }
 
 /** ファイルから読み込むときの1回分の大きさ (pdf.js が必要な部分だけを順に取りに来る) */
@@ -36,9 +48,24 @@ const RANGE_CHUNK = 1 << 20;
  */
 class BlobRangeTransport extends pdfjsLib.PDFDataRangeTransport {
   private aborted = false;
+  private rejectFailure: (error: Error) => void = () => undefined;
+
+  /**
+   * 部分的に読めなかったときに失敗する約束。
+   *
+   * pdf.js には「この範囲は読めなかった」と伝える道がなく、黙っていると
+   * 読み込みがいつまでも終わらない。そこで、こちらで失敗を受け取れるようにして、
+   * 開く処理と競わせる (読めなければ、ファイル全体の読み込みに切り替える)。
+   */
+  readonly failure: Promise<never>;
 
   constructor(private readonly blob: Blob) {
     super(blob.size, null);
+    this.failure = new Promise<never>((_, reject) => {
+      this.rejectFailure = reject;
+    });
+    // 誰も待っていないときに「処理されなかった失敗」として騒がれないようにする
+    this.failure.catch(() => undefined);
   }
 
   override requestDataRange(begin: number, end: number): void {
@@ -48,8 +75,9 @@ class BlobRangeTransport extends pdfjsLib.PDFDataRangeTransport {
       .then((buffer) => {
         if (!this.aborted) this.onDataRange(begin, new Uint8Array(buffer));
       })
-      .catch(() => {
-        /* 読めなかった範囲は pdf.js 側の失敗として扱われる */
+      .catch((error: unknown) => {
+        if (this.aborted) return;
+        this.rejectFailure(error instanceof Error ? error : new Error('ファイルの一部を読めませんでした。'));
       });
   }
 
@@ -82,17 +110,19 @@ export async function openWithPdfjs(
 }
 
 async function open(source: Uint8Array | Blob, options: LoadOptions): Promise<PDFDocumentProxy> {
+  const transport = source instanceof Blob ? new BlobRangeTransport(source) : null;
   const input =
-    source instanceof Blob
+    source instanceof Blob && transport
       ? {
-          range: new BlobRangeTransport(source),
+          range: transport,
           length: source.size,
           rangeChunkSize: RANGE_CHUNK,
           // 先読みで全体を取りに行かない (必要になったページの分だけ読む)
           disableAutoFetch: true,
           disableStream: true,
         }
-      : { data: source.slice() };
+      : { data: (source as Uint8Array).slice() };
+  const gpu = options.gpu ?? useGpu();
   const task = pdfjsLib.getDocument({
     ...input,
     cMapUrl: assetUrl('cmaps/'),
@@ -106,10 +136,18 @@ async function open(source: Uint8Array | Blob, options: LoadOptions): Promise<PD
     enableXfa: false,
     // GPUで描けるなら、pdf.js が内部で使う作業用の描画面もGPU側に置く。
     // 使わない設定のときは全部CPU側に揃える (行き来の手間が出ないように)。
-    enableHWA: useGpu(),
+    enableHWA: gpu,
     password: options.password,
   });
-  return task.promise;
+  try {
+    const proxy = transport ? await Promise.race([task.promise, transport.failure]) : await task.promise;
+    openedWithGpu.set(proxy, gpu);
+    return proxy;
+  } catch (error) {
+    // 開けなかった読み込みは、作業役ごと片付ける (残しておくと、読み込み待ちのまま居座る)
+    void task.destroy().catch(() => undefined);
+    throw error;
+  }
 }
 
 /**

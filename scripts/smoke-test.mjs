@@ -298,6 +298,21 @@ for (const [hash, heading] of [
   check(`${heading} が表示される`, await title.isVisible().catch(() => false));
 }
 
+{
+  // 最初に開く画面 (ホーム・設定) では、PDFを扱う重い部品 (pdf.js・pdf-lib) を読み込まない。
+  // 設定画面の速さの計測がそれらを直に読み込んでいて、入口のJSが 1.16MB になっていたことがある。
+  const fresh = await context.newPage();
+  await fresh.goto(base + '#/settings', { waitUntil: 'networkidle' });
+  const jsBytes = await fresh.evaluate(() =>
+    performance
+      .getEntriesByType('resource')
+      .filter((entry) => entry.name.endsWith('.js'))
+      .reduce((sum, entry) => sum + entry.decodedBodySize, 0),
+  );
+  check('ホーム・設定を開いただけでは重い部品を読み込まない', jsBytes > 0 && jsBytes < 500_000, `${Math.round(jsBytes / 1024)}KB`);
+  await fresh.close();
+}
+
 console.log('\n[1b] 説明の折りたたみ');
 {
   // 説明が長いと開いた瞬間の圧が強いので、見出しだけが並ぶ形にしている。
@@ -2410,9 +2425,14 @@ console.log('\n[7c] 並べて進める・作業役・速さの設定');
   await page.goto(base + '#/settings');
   await page.reload({ waitUntil: 'load' });
   await page.getByRole('button', { name: 'この端末で速さを測る' }).click();
-  await page.locator('.bench-table').waitFor({ timeout: 120_000 });
-  const rows = await page.locator('.bench-table tbody tr').count();
-  check('速さを測ると組み合わせごとの結果が出る', rows >= 2, `${rows}通り`);
+  const results = page.locator('.bench-table').first();
+  await results.waitFor({ timeout: 120_000 });
+  const rows = await results.locator('tbody tr').count();
+  check('速さを測ると組み合わせごとの結果が出る', rows >= 3, `${rows}通り`);
+  const lanesMeasured = await results.locator('tbody tr td:first-child').allInnerTexts();
+  check('同時数は 1・2・3 をすべて比べる', ['1ページ', '2ページ', '3ページ'].every((label) => lanesMeasured.includes(label)), lanesMeasured.join(','));
+  await page.locator('summary').filter({ hasText: '工程ごとの内訳' }).click();
+  check('工程ごとの内訳を見られる', await page.locator('.bench-table').nth(1).isVisible());
   check('いちばん速い組み合わせが示される', (await page.locator('.bench-table__best').count()) === 1);
   await page.getByRole('button', { name: 'いちばん速い組み合わせにする' }).click();
   await page.waitForTimeout(300);

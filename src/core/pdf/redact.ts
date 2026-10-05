@@ -2,9 +2,9 @@ import { PDFDocument } from 'pdf-lib';
 import { yieldToUi } from '../util/queue';
 import { PRODUCER } from './assemble';
 import { toUserError } from './errors';
-import { context2d, parallelLanes } from '../perf/device';
+import { context2d, parallelLanes, useGpu } from '../perf/device';
 import { ImagePdfWriter } from './imagePdfWriter';
-import { closePdf, openWithPdfjs, type PDFDocumentProxy } from './pdfjs';
+import { closePdf, gpuOf, openWithPdfjs, type PDFDocumentProxy } from './pdfjs';
 import { canvasToBlob, clampScale } from './render';
 
 export type RedactColor = 'black' | 'white';
@@ -66,6 +66,29 @@ export interface RedactParams {
    * 1 にすると、これまでどおり1ページずつ順番に進める。
    */
   lanes?: number;
+  /**
+   * GPUで描くか。省略すると設定に従う。
+   * 速さの計測では、アプリ全体の設定を書き換えずに組み合わせごとに指定するために使う。
+   */
+  gpu?: boolean;
+  /** 渡すと、工程ごとにかかった時間 (ミリ秒) を足し込む (速さの計測の内訳用) */
+  stats?: RasterStats;
+}
+
+/** 工程ごとにかかった時間 (ミリ秒)。並べて進めたときは各ページの合計なので、全体の時間より大きくなる */
+export interface RasterStats {
+  /** PDFを開く */
+  open: number;
+  /** ページをキャンバスに描く */
+  render: number;
+  /** キャンバスを JPEG / PNG にする (GPUのときは、ここで描いた絵を読み戻す) */
+  encode: number;
+  /** PDFに組み立てる */
+  assemble: number;
+}
+
+export function emptyStats(): RasterStats {
+  return { open: 0, render: 0, encode: 0, assemble: 0 };
 }
 
 function assertNotAborted(signal?: AbortSignal): void {
@@ -93,6 +116,8 @@ async function rasterizePage(
   canvas: HTMLCanvasElement,
   settings: RedactOptions,
   rectsForPage: RedactParams['rectsForPage'],
+  gpu: boolean,
+  stats?: RasterStats,
 ): Promise<RasterPage> {
   const mime = settings.format === 'png' ? 'image/png' : 'image/jpeg';
   const quality = settings.format === 'png' ? undefined : settings.jpegQuality;
@@ -105,9 +130,10 @@ async function rasterizePage(
 
   canvas.width = Math.max(1, Math.floor(viewport.width));
   canvas.height = Math.max(1, Math.floor(viewport.height));
-  const context = context2d(canvas);
+  const context = context2d(canvas, gpu);
   if (!context) throw new Error('この環境ではキャンバスを利用できません。');
 
+  const renderStarted = performance.now();
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, canvas.width, canvas.height);
   await page.render({ canvas, canvasContext: context, viewport, background: '#ffffff' }).promise;
@@ -124,9 +150,13 @@ async function rasterizePage(
     context.fillRect(x, y, w, h);
   }
 
+  const encodeStarted = performance.now();
+  if (stats) stats.render += encodeStarted - renderStarted;
   const blob = await canvasToBlob(canvas, mime, quality);
+  const image = new Uint8Array(await blob.arrayBuffer());
+  if (stats) stats.encode += performance.now() - encodeStarted;
   return {
-    image: new Uint8Array(await blob.arrayBuffer()),
+    image,
     pixelWidth: canvas.width,
     pixelHeight: canvas.height,
     width: base.width,
@@ -173,11 +203,18 @@ export async function redactToPdf({
   signal,
   proxy,
   lanes,
+  gpu = useGpu(),
+  stats,
 }: RedactParams): Promise<Blob> {
   const settings = { ...DEFAULT_REDACT_OPTIONS, ...options };
   const streaming = settings.format === 'jpeg';
 
-  const doc = proxy ?? (await openWithPdfjs(source));
+  // 渡されたドキュメントが別の GPU 設定で開かれていたら (設定を変えたあとなど)、
+  // pdf.js の作業用の描画面とこちらの描画面で扱いが混ざらないよう、開き直して使う
+  const openStarted = performance.now();
+  const reuse = proxy && gpuOf(proxy) === gpu ? proxy : null;
+  const doc = reuse ?? (await openWithPdfjs(source, { gpu }));
+  if (stats) stats.open += performance.now() - openStarted;
   const pageCount = doc.numPages;
   const laneCount = Math.max(1, Math.min(lanes ?? parallelLanes(), pageCount));
   const canvases: HTMLCanvasElement[] = [];
@@ -200,7 +237,7 @@ export async function redactToPdf({
         if (index >= pageCount) return;
         next += 1;
         try {
-          const result = await rasterizePage(doc, index, pageCount, canvas, settings, rectsForPage);
+          const result = await rasterizePage(doc, index, pageCount, canvas, settings, rectsForPage, gpu, stats);
           if (writer) {
             writer.addJpegPage(index, {
               jpeg: result.image,
@@ -228,7 +265,12 @@ export async function redactToPdf({
     if (rejected) throw rejected.reason;
     assertNotAborted(signal);
 
-    if (writer) return writer.finish();
+    const assembleStarted = performance.now();
+    if (writer) {
+      const pdf = writer.finish();
+      if (stats) stats.assemble += performance.now() - assembleStarted;
+      return pdf;
+    }
 
     const out = await PDFDocument.create();
     out.setProducer(PRODUCER);
@@ -240,6 +282,7 @@ export async function redactToPdf({
       outPage.drawImage(image, { x: 0, y: 0, width: result.width, height: result.height });
     }
     const bytes = await out.save({ useObjectStreams: true });
+    if (stats) stats.assemble += performance.now() - assembleStarted;
     return new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
@@ -250,6 +293,6 @@ export async function redactToPdf({
       canvas.height = 0;
     }
     // 呼び出し側から渡されたドキュメントは、その持ち主が閉じる
-    if (!proxy) await closePdf(doc);
+    if (!reuse) await closePdf(doc);
   }
 }
