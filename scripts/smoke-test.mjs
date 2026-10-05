@@ -869,6 +869,131 @@ console.log('\n[2g] 画像の取り込み');
   await page.locator('select[aria-label="画像を取り込むとき"]').selectOption('balanced');
 }
 
+console.log('\n[2h] 画像で保存と、画像の形式');
+{
+  /** ファイルの先頭の印から、画像の形式を言い当てる */
+  const imageKind = (buffer) => {
+    const b = Buffer.from(buffer);
+    if (b.subarray(0, 4).toString('hex') === '89504e47') return 'png';
+    if (b[0] === 0xff && b[1] === 0xd8) return 'jpeg';
+    if (b.subarray(0, 4).toString() === 'RIFF' && b.subarray(8, 12).toString() === 'WEBP') return 'webp';
+    if (b.subarray(4, 12).toString() === 'ftypavif') return 'avif';
+    return 'unknown';
+  };
+  /** PNG の幅と高さ (IHDR) */
+  const pngSize = (buffer) => {
+    const b = Buffer.from(buffer);
+    return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+  };
+
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'pictures.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf,
+  });
+  await page.locator('.page-card:visible').nth(2).waitFor({ timeout: 20_000 });
+  // 1ページ目だけ横に回しておく (回した向きのまま画像になるか)
+  await page.locator('.page-card:visible').first().getByRole('button', { name: '右に回転' }).click();
+  await page.waitForTimeout(300);
+
+  /** 形式を選んで保存し、保存されたファイルを返す */
+  const exportAs = async (label) => {
+    await page.getByRole('button', { name: '画像で保存' }).click();
+    await page.locator('.dialog').getByText(label, { exact: true }).click();
+    downloads.length = 0;
+    await page.locator('.dialog').getByRole('button', { name: /ZIPで保存|画像を保存/ }).click();
+    await page.locator('.dialog').waitFor({ state: 'detached', timeout: 120_000 });
+    await page.waitForTimeout(1500);
+    return downloads[0];
+  };
+
+  const pngZip = await exportAs('PNG');
+  check('選んでいないときは全ページを ZIP で保存する', Boolean(pngZip && pngZip.name.endsWith('.zip')), pngZip?.name);
+  if (pngZip) {
+    const entries = Object.entries(unzipSync(new Uint8Array(pngZip.body))).sort(([a], [b]) => a.localeCompare(b));
+    check('ZIP にページの数だけ画像が入る', entries.length === 3, `${entries.length}枚`);
+    check('ファイル名にページ番号が付く', entries.map(([name]) => name).join(',') === 'pictures_p1.png,pictures_p2.png,pictures_p3.png', entries.map(([name]) => name).join(','));
+    check('PNG として保存される', entries.every(([, data]) => imageKind(data) === 'png'));
+    const first = pngSize(entries[0][1]);
+    const second = pngSize(entries[1][1]);
+    check('回したページは回した向きで画像になる', first.width > first.height && second.height > second.width, `${first.width}x${first.height} / ${second.width}x${second.height}`);
+    // 150dpi の A4 縦は 1240×1754 前後
+    check('解像度の指定どおりの大きさ', Math.abs(second.width - 1240) <= 2, `${second.width}x${second.height}`);
+  }
+
+  const exported = {};
+  for (const [label, kind] of [['JPEG', 'jpeg'], ['WebP', 'webp'], ['AVIF', 'avif']]) {
+    const zipped = await exportAs(label);
+    const entries = zipped ? Object.entries(unzipSync(new Uint8Array(zipped.body))) : [];
+    check(`${label} で保存できる`, entries.length === 3 && entries.every(([, data]) => imageKind(data) === kind), entries.map(([name, data]) => `${name}:${imageKind(data)}`).join(' '));
+    if (entries[1]) exported[kind] = entries[1];
+  }
+
+  // ページ番号を入れる設定のときは、番号も画像に入る (番号は全体の中の位置で決まる)
+  const darkAtBottom = (png) =>
+    page.evaluate(async (b64) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0);
+      const { width, height } = bitmap;
+      const data = ctx.getImageData(Math.round(width * 0.4), Math.round(height * 0.9), Math.round(width * 0.2), Math.round(height * 0.09)).data;
+      let dark = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] < 120 && data[i + 1] < 120 && data[i + 2] < 120) dark += 1;
+      return dark;
+    }, Buffer.from(png).toString('base64'));
+  if (pngZip) {
+    const plain = Object.entries(unzipSync(new Uint8Array(pngZip.body))).sort(([a], [b]) => a.localeCompare(b));
+    await page.getByRole('button', { name: /ページ番号/ }).click();
+    await page.getByRole('button', { name: '下 中央' }).click();
+    await page.getByRole('button', { name: 'この設定で入れる' }).click();
+    await page.waitForTimeout(300);
+    const numberedZip = await exportAs('PNG');
+    const numbered = numberedZip
+      ? Object.entries(unzipSync(new Uint8Array(numberedZip.body))).sort(([a], [b]) => a.localeCompare(b))
+      : [];
+    const without = await darkAtBottom(plain[1][1]);
+    const withNumber = numbered[1] ? await darkAtBottom(numbered[1][1]) : 0;
+    check('ページ番号も画像に入る', without === 0 && withNumber > 0, `番号なし ${without} / 番号あり ${withNumber}`);
+  }
+
+  // 1ページだけ選ぶと、ZIP ではなく画像1枚
+  await page.locator('.page-card:visible .page-card__check').nth(1).check();
+  const single = await exportAs('JPEG');
+  check('1ページなら画像1枚で保存する', Boolean(single && single.name === 'pictures_p2.jpg' && imageKind(single.body) === 'jpeg'), single?.name);
+
+  // 書き出した WebP・AVIF を取り込み直すと、ページになる
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  for (const [kind, mime] of [['webp', 'image/webp'], ['avif', 'image/avif']]) {
+    const entry = exported[kind];
+    if (!entry) continue;
+    const before = await page.locator('.page-card:visible').count();
+    await page.locator('input[type=file]:visible').first().setInputFiles({ name: entry[0], mimeType: mime, buffer: Buffer.from(entry[1]) });
+    await page.waitForFunction((n) => document.querySelectorAll('.page-card').length > n, before, { timeout: 20_000 }).catch(() => undefined);
+    check(`${kind.toUpperCase()} の画像を取り込める`, (await page.locator('.page-card:visible').count()) === before + 1);
+  }
+
+  // HEIC は Chromium では読めないので、読めない理由と代わりの方法を伝える
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'IMG_0001.HEIC',
+    mimeType: 'image/heic',
+    buffer: Buffer.from('heic'),
+  });
+  await page.waitForTimeout(1500);
+  const heicMessage = await page.locator('.snackbar').last().innerText().catch(() => '');
+  check('読めない HEIC は理由を伝える', heicMessage.includes('HEIC') && heicMessage.includes('Safari'), heicMessage || '(通知なし)');
+}
+
 console.log('\n[3] 墨消し');
 await page.goto(base + '#/redact');
 await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });

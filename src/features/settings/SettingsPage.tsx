@@ -167,7 +167,7 @@ export function SettingsPage() {
 
           <SettingRow
             title="画像を取り込むとき"
-            description="JPEG・PNGをページにするときの画質です。「元のまま」以外は、ブラウザで一度刷り直してから入れるので、取り込みが速くPDFも小さくなります。"
+            description="画像をページにするときの画質です。「元のまま」以外は、ブラウザで一度刷り直してから入れるので、取り込みが速くPDFも小さくなります。"
           >
             <select
               className="select"
@@ -298,7 +298,7 @@ export function SettingsPage() {
           <div style={{ padding: '12px 0 4px' }}>
             <p className="text-small muted" style={{ marginTop: 0 }}>
               効き目は端末によって違います。見本のPDFで実際に測って、いちばん速い組み合わせを選べます
-              (数秒〜十数秒かかります。お手持ちのPDFは使いません)。
+              (十数秒かかります。お手持ちのPDFは使いません)。
             </p>
             <Button
               variant="tonal"
@@ -345,6 +345,7 @@ export function SettingsPage() {
                   {bench.gainPercent > 0
                     ? `1ページずつ・GPUなしに比べて、約${bench.gainPercent}%速くなります。`
                     : 'この端末では、1ページずつ・GPUなしがいちばん速いようです。'}
+                  {bench.gpuWithinNoise ? ' GPUのあり・なしの差は、測るたびのぶれの範囲です。' : ''}
                 </p>
                 <Button
                   small

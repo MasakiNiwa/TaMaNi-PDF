@@ -84,7 +84,8 @@ export function HelpPage() {
           <ol style={{ marginTop: 0, paddingLeft: '1.2em' }}>
             <li>
               PDFをドラッグ&ドロップ (スマホはタップして選択) します。複数まとめて読み込めます。
-              <strong>画像 (JPEG・PNG) から始めることもできます。</strong>
+              <strong>画像 (JPEG・PNG・WebP・AVIF・HEIC) から始めることもできます。</strong>
+              HEIC (iPhone の写真) を読めるのは iPhone・Mac の Safari だけです。
             </li>
             <li>
               あとからPDFを足すときは、<strong>中身を見て入れるページを選べます</strong>。
@@ -112,6 +113,11 @@ export function HelpPage() {
               (間違えても<strong>戻す</strong>で元に戻せます)。
             </li>
             <li>
+              ツールバーの<strong>「画像で保存」</strong>で、ページを画像ファイル (PNG・JPEG・WebP・AVIF) にできます。
+              選んだページがあればそのページだけ、なければ全ページです。1ページなら画像1枚、
+              2ページ以上なら ZIP にまとめて保存します。AVIF は書き出しに時間がかかります。
+            </li>
+            <li>
               ツールバーの<strong>「ページ番号」</strong>で、書き出すPDFに通し番号を入れられます。
               位置 (上下 × 左中右)、書き方 (1 / - 1 - / 1 / 12 / P.1)、開始番号、文字の大きさ、
               1ページ目を飛ばすかを選べます。番号は欧文フォントで描くため、日本語は入れられません。
@@ -126,7 +132,7 @@ export function HelpPage() {
             </li>
           </ol>
           <p>
-            JPEG・PNGの画像もページとして追加できます。ツールバーの「空白ページ」で白紙も足せます。
+            画像もページとして追加できます。ツールバーの「空白ページ」で白紙も足せます。
             ページ整理では中身を作り直さないので、<strong>文字は文字のまま残ります</strong>。
           </p>
           <p style={{ marginBottom: 0 }}>

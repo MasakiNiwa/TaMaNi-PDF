@@ -1,7 +1,7 @@
 {
   "name": "tamani-pdf",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "type": "module",
   "description": "たまにPDF - たまに使うPDFツール",
   "license": "MIT",
@@ -19,6 +19,7 @@
     "@dnd-kit/modifiers": "^9.0.0",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@jsquash/avif": "^2.1.1",
     "fflate": "^0.8.3",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.3.289",

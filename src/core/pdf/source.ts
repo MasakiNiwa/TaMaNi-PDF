@@ -11,14 +11,69 @@ import type { PageRef, PdfSource } from './types';
 export const A4 = { width: 595.28, height: 841.89 } as const;
 
 export const ACCEPTED_PDF_TYPES = ['application/pdf'];
-export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png'];
+/**
+ * 取り込める画像。
+ *
+ * JPEG と PNG はそのままPDFに埋め込める。WebP・AVIF・HEIC/HEIF はPDFに埋め込めないので、
+ * ブラウザに読ませてから JPEG (「元のまま」のときは劣化しない PNG) に描き直して入れる。
+ * HEIC/HEIF を読めるのは今のところ Safari (iPhone・Mac) だけで、ほかのブラウザでは
+ * 読めない旨を伝える。HEIC を読むための部品 (HEVC の展開器) は特許とライセンスの事情があるため同梱していない。
+ */
+export const ACCEPTED_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/avif',
+  'image/heic',
+  'image/heif',
+];
+
+/** ファイル選択に渡す accept (拡張子も並べる。HEIC は種類が空で渡ってくる端末があるため) */
+export const IMAGE_ACCEPT = [...ACCEPTED_IMAGE_TYPES, '.jpg', '.jpeg', '.png', '.webp', '.avif', '.heic', '.heif'].join(',');
 
 export function isPdfFile(file: File): boolean {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
 }
 
 export function isImageFile(file: File): boolean {
-  return ACCEPTED_IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png)$/i.test(file.name);
+  return ACCEPTED_IMAGE_TYPES.includes(file.type) || /\.(jpe?g|png|webp|avif|heic|heif)$/i.test(file.name);
+}
+
+type ImageKind = 'jpeg' | 'png' | 'other';
+
+function imageKind(file: File): ImageKind {
+  if (file.type === 'image/jpeg' || /\.jpe?g$/i.test(file.name)) return 'jpeg';
+  if (file.type === 'image/png' || /\.png$/i.test(file.name)) return 'png';
+  return 'other';
+}
+
+function isHeic(file: File): boolean {
+  return /^image\/hei[cf]$/.test(file.type) || /\.hei[cf]$/i.test(file.name);
+}
+
+/**
+ * ブラウザに画像を読ませて、劣化しない PNG に描き直す。
+ * PDFにそのまま入れられない形式 (WebP など) を「元のまま」の画質で取り込むときに使う。
+ */
+async function redrawAsPng(file: File): Promise<Uint8Array | null> {
+  if (typeof createImageBitmap !== 'function') return null;
+  let bitmap: ImageBitmap | null = null;
+  const canvas = document.createElement('canvas');
+  try {
+    bitmap = await createImageBitmap(file);
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.drawImage(bitmap, 0, 0);
+    return new Uint8Array(await (await canvasToBlob(canvas, 'image/png')).arrayBuffer());
+  } catch {
+    return null;
+  } finally {
+    bitmap?.close();
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 async function finalizeSource(
@@ -117,20 +172,32 @@ export async function loadImageFile(
   try {
     const raw = new Uint8Array(await file.arrayBuffer());
     const doc = await PDFDocument.create();
-    const isPng = file.type === 'image/png' || /\.png$/i.test(file.name);
+    const kind = imageKind(file);
 
-    // 作り直したほうが大きくなるなら (もともと小さいJPEGなど) 元のまま入れる
     // 刷り直しは作業役 (Web Worker) に任せる。使えない環境では画面のスレッドで同じことをする。
     const preset = mode === 'original' ? null : IMAGE_IMPORT_PRESET[mode];
     const reencoded = preset
       ? ((await reencodeInWorker(file, preset)) ?? (await reencodeImage(file, preset)))
       : null;
-    const image =
-      reencoded && reencoded.byteLength < raw.byteLength
-        ? await doc.embedJpg(reencoded)
-        : isPng
-          ? await doc.embedPng(raw)
-          : await doc.embedJpg(raw);
+
+    let image;
+    if (kind === 'other') {
+      // PDFに直接入れられない形式は、描き直したものしか使えない
+      const redrawn = reencoded ?? (mode === 'original' ? await redrawAsPng(file) : null);
+      if (!redrawn) {
+        throw new PdfUserError(
+          isHeic(file)
+            ? `「${file.name}」(HEIC) は、このブラウザでは読めません。iPhone・Mac の Safari なら読めます。ほかの端末では、JPEG に変換してから選んでください。`
+            : `「${file.name}」は、このブラウザでは読めない画像です。JPEG か PNG に変換してから選んでください。`,
+        );
+      }
+      image = reencoded ? await doc.embedJpg(redrawn) : await doc.embedPng(redrawn);
+    } else if (reencoded && reencoded.byteLength < raw.byteLength) {
+      // 作り直したほうが大きくなるなら (もともと小さいJPEGなど) 元のまま入れる
+      image = await doc.embedJpg(reencoded);
+    } else {
+      image = kind === 'png' ? await doc.embedPng(raw) : await doc.embedJpg(raw);
+    }
 
     const landscape = image.width > image.height;
     const boxWidth = landscape ? A4.height : A4.width;
@@ -167,5 +234,5 @@ export async function loadAnyFile(
 ): Promise<{ source: PdfSource; pages: PageRef[] }> {
   if (isPdfFile(file)) return loadPdfFile(file);
   if (isImageFile(file)) return loadImageFile(file, imageMode);
-  throw new PdfUserError(`「${file.name}」は対応していない形式です。PDF・JPEG・PNG を選んでください。`);
+  throw new PdfUserError(`「${file.name}」は対応していない形式です。PDF か画像 (JPEG・PNG・WebP・AVIF・HEIC) を選んでください。`);
 }

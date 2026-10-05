@@ -1,3 +1,4 @@
+import type { ImageFormat } from '../image/pageImages';
 import type { GpuSetting, ParallelSetting } from '../perf/device';
 import type { RedactColor } from '../pdf/redact';
 import { readJson, writeJson } from './store';
@@ -59,7 +60,12 @@ export interface Settings {
   parallel: ParallelSetting;
   /** GPUで描くか。'auto' は使える端末なら使う。描画が乱れる端末向けに 'off' を選べる */
   gpu: GpuSetting;
+  /** ページを画像で保存するときの形式と解像度 (前回選んだもの) */
+  imageExportFormat: ImageFormat;
+  imageExportDpi: number;
 }
+
+export const IMAGE_EXPORT_DPI = [96, 150, 300] as const;
 
 export const DPI_CHOICES = [96, 150, 200, 300] as const;
 
@@ -78,6 +84,8 @@ export const DEFAULT_SETTINGS: Settings = {
   templateAutoAlign: false,
   parallel: 'auto',
   gpu: 'auto',
+  imageExportFormat: 'png',
+  imageExportDpi: 150,
 };
 
 const KEY = 'settings';
@@ -116,6 +124,12 @@ function coerce(raw: unknown): Settings {
       ? (value.parallel as ParallelSetting)
       : DEFAULT_SETTINGS.parallel,
     gpu: value.gpu === 'off' ? 'off' : DEFAULT_SETTINGS.gpu,
+    imageExportFormat: (['png', 'jpeg', 'webp', 'avif'] as const).includes(value.imageExportFormat as ImageFormat)
+      ? (value.imageExportFormat as ImageFormat)
+      : DEFAULT_SETTINGS.imageExportFormat,
+    imageExportDpi: IMAGE_EXPORT_DPI.includes(value.imageExportDpi as (typeof IMAGE_EXPORT_DPI)[number])
+      ? (value.imageExportDpi as number)
+      : DEFAULT_SETTINGS.imageExportDpi,
   };
 }
 
