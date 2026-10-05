@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useSettings } from '../../app/SettingsContext';
 import { useTemplates } from '../../app/TemplatesContext';
 import { APP_NAME, APP_VERSION, BUILD_DATE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../../app/version';
@@ -8,6 +8,8 @@ import {
   THUMBNAIL_SIZES,
   THUMBNAIL_SIZE_LABEL,
 } from '../../core/storage/settings';
+import { measureSpeed, type BenchmarkResult } from '../../core/perf/benchmark';
+import { autoParallel, deviceProfile, detectGpu } from '../../core/perf/device';
 import { buildExportFile, parseImportFile } from '../../core/storage/templates';
 import { clearAll, isStorageAvailable } from '../../core/storage/store';
 import { saveText } from '../../core/util/download';
@@ -15,7 +17,7 @@ import { formatDateTime } from '../../core/util/format';
 import { Button, IconButton } from '../../ui/Button';
 import { Dialog } from '../../ui/Dialog';
 import { Icon } from '../../ui/Icon';
-import { Banner, Collapsible, SettingRow } from '../../ui/primitives';
+import { Banner, Collapsible, ProgressBar, SettingRow } from '../../ui/primitives';
 import { useSnackbar } from '../../ui/Snackbar';
 
 /** 端末に保存できなかったときに出す案内 (複数の場所で使う) */
@@ -31,6 +33,25 @@ export function SettingsPage() {
   const [confirmClear, setConfirmClear] = useState(false);
 
   const storageOk = isStorageAvailable();
+
+  // 端末について分かること (どこにも送らず、表示と自動の決定にだけ使う)
+  const profile = useMemo(() => deviceProfile(), []);
+  const gpuInfo = useMemo(() => detectGpu(), []);
+  const autoLanes = autoParallel(profile);
+  const [benchProgress, setBenchProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bench, setBench] = useState<BenchmarkResult | null>(null);
+
+  const runBenchmark = useCallback(async () => {
+    setBench(null);
+    setBenchProgress({ done: 0, total: 1 });
+    try {
+      setBench(await measureSpeed((done, total) => setBenchProgress({ done, total })));
+    } catch (error) {
+      snackbar.error(error instanceof Error ? error.message : '測れませんでした。');
+    } finally {
+      setBenchProgress(null);
+    }
+  }, [snackbar]);
 
   const exportTemplates = useCallback(() => {
     if (templates.templates.length === 0) return;
@@ -224,6 +245,121 @@ export function SettingsPage() {
               <option value="white">白</option>
             </select>
           </SettingRow>
+        </div>
+      </section>
+
+      <section className="section">
+        <h2 className="section__title">処理の速さ</h2>
+        <div className="card card--outlined">
+          <SettingRow
+            title="同時に進めるページ数"
+            description={`墨消し・サイズ圧縮・画像の取り込みで、何ページ (何枚) を同時に流すかです。自動では、この端末 (${profile.cores}コア${profile.memoryGb ? `・メモリ約${profile.memoryGb}GB` : ''}) に合わせて ${autoLanes} にします。`}
+          >
+            <select
+              className="select"
+              value={String(settings.parallel)}
+              onChange={(event) =>
+                update({
+                  parallel:
+                    event.target.value === 'auto' ? 'auto' : (Number(event.target.value) as 1 | 2 | 3 | 4),
+                })
+              }
+              aria-label="同時に進めるページ数"
+            >
+              <option value="auto">自動 ({autoLanes})</option>
+              <option value="1">1 (メモリを節約)</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </SettingRow>
+
+          <SettingRow
+            title="GPUで描く"
+            description={
+              gpuInfo.available
+                ? 'この端末はGPUで描けます。自動ではGPUを使います。表示が乱れるときは「使わない」にしてください。'
+                : gpuInfo.software
+                  ? 'この端末のブラウザはGPUの代わりにCPUで真似ているため、使っても速くなりません。自動では使いません。'
+                  : 'この端末のブラウザではGPUを使えないため、自動では使いません。'
+            }
+          >
+            <select
+              className="select"
+              value={settings.gpu}
+              onChange={(event) => update({ gpu: event.target.value === 'off' ? 'off' : 'auto' })}
+              aria-label="GPUで描く"
+            >
+              <option value="auto">自動 ({gpuInfo.available ? '使う' : '使わない'})</option>
+              <option value="off">使わない</option>
+            </select>
+          </SettingRow>
+
+          <div style={{ padding: '12px 0 4px' }}>
+            <p className="text-small muted" style={{ marginTop: 0 }}>
+              効き目は端末によって違います。見本のPDFで実際に測って、いちばん速い組み合わせを選べます
+              (数秒〜十数秒かかります。お手持ちのPDFは使いません)。
+            </p>
+            <Button
+              variant="tonal"
+              icon="play"
+              disabled={benchProgress !== null}
+              onClick={() => void runBenchmark()}
+            >
+              この端末で速さを測る
+            </Button>
+            {benchProgress ? (
+              <div style={{ marginTop: 12 }} role="status">
+                <p className="text-small" style={{ margin: '0 0 6px' }}>
+                  測っています… {benchProgress.done} / {benchProgress.total}
+                </p>
+                <ProgressBar value={benchProgress.done} max={benchProgress.total} />
+              </div>
+            ) : null}
+            {bench ? (
+              <div className="bench-result" role="status">
+                <table className="bench-table">
+                  <thead>
+                    <tr>
+                      <th>同時に</th>
+                      <th>GPU</th>
+                      <th>かかった時間</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bench.cases.map((item) => (
+                      <tr
+                        key={`${item.lanes}-${item.gpu}`}
+                        className={item === bench.best ? 'bench-table__best' : undefined}
+                      >
+                        <td>{item.lanes}ページ</td>
+                        <td>{item.gpu ? '使う' : '使わない'}</td>
+                        <td>
+                          {(item.ms / 1000).toFixed(2)}秒{item === bench.best ? ' ← いちばん速い' : ''}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-small" style={{ margin: '8px 0' }}>
+                  {bench.gainPercent > 0
+                    ? `1ページずつ・GPUなしに比べて、約${bench.gainPercent}%速くなります。`
+                    : 'この端末では、1ページずつ・GPUなしがいちばん速いようです。'}
+                </p>
+                <Button
+                  small
+                  variant="filled"
+                  icon="check"
+                  onClick={() => {
+                    update({ parallel: bench.best.lanes as 1 | 2 | 3 | 4, gpu: bench.best.gpu ? 'auto' : 'off' });
+                    snackbar.success('いちばん速かった組み合わせにしました。');
+                  }}
+                >
+                  いちばん速い組み合わせにする
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
       </section>
 

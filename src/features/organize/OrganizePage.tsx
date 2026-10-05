@@ -28,6 +28,7 @@ import {
 import { closePdf } from '../../core/pdf/pdfjs';
 import type { PageRef } from '../../core/pdf/types';
 import { createBlankSource, loadAnyFile } from '../../core/pdf/source';
+import { parallelLanes } from '../../core/perf/device';
 import { createLimiter } from '../../core/util/queue';
 import {
   THUMBNAIL_SIZES,
@@ -133,10 +134,11 @@ export function OrganizePage() {
         /*
          * 読み込みは何枚かまとめて進める。
          * 写真やスクリーンショットを10枚ほど選ぶことがあり、1枚ずつ順番に待つと
-         * そのぶん待ち時間が積み上がるため。同時に走らせすぎると端末が苦しいので数を絞る。
+         * そのぶん待ち時間が積み上がるため。同時に進める数は端末に合わせて決める
+         * (画像の刷り直しは作業役が受け持つので、その数より1つ多く流しておく)。
          * 結果は選んだ順に並べ直してから入れるので、並び順は変わらない。
          */
-        const load = createLimiter(3);
+        const load = createLimiter(parallelLanes() + 1);
         const results = await Promise.all(
           files.map((file) =>
             load(async () => {

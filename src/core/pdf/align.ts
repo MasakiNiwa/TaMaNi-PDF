@@ -85,7 +85,8 @@ export function fingerprintFromCanvas(source: HTMLCanvasElement, width = ALIGN_W
   const small = document.createElement('canvas');
   small.width = w;
   small.height = h;
-  const context = small.getContext('2d', { alpha: false });
+  // 画素を読み出すための小さな面なので、最初からCPU側に置く (GPUから読み戻す手間を省く)
+  const context = small.getContext('2d', { alpha: false, willReadFrequently: true });
   if (!context) throw new Error('この環境ではキャンバスを利用できません。');
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, w, h);

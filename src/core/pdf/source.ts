@@ -1,5 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import type { ImageImportMode } from '../storage/settings';
+import { reencodeInWorker } from '../image/reencode';
 import { createId } from '../util/id';
 import { toUserError, PdfUserError } from './errors';
 import { openWithPdfjs } from './pdfjs';
@@ -119,7 +120,11 @@ export async function loadImageFile(
     const isPng = file.type === 'image/png' || /\.png$/i.test(file.name);
 
     // 作り直したほうが大きくなるなら (もともと小さいJPEGなど) 元のまま入れる
-    const reencoded = mode === 'original' ? null : await reencodeImage(file, IMAGE_IMPORT_PRESET[mode]);
+    // 刷り直しは作業役 (Web Worker) に任せる。使えない環境では画面のスレッドで同じことをする。
+    const preset = mode === 'original' ? null : IMAGE_IMPORT_PRESET[mode];
+    const reencoded = preset
+      ? ((await reencodeInWorker(file, preset)) ?? (await reencodeImage(file, preset)))
+      : null;
     const image =
       reencoded && reencoded.byteLength < raw.byteLength
         ? await doc.embedJpg(reencoded)
