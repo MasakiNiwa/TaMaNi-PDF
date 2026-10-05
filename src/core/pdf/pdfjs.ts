@@ -4,6 +4,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 // polyfill を通したワーカーを使う (素の pdf.worker を直接指すと
 // Map の upsert メソッドが無いブラウザで描画に失敗する)
 import workerUrl from './pdf.worker.entry?worker&url';
+import { useGpu } from '../perf/device';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -39,6 +40,9 @@ export async function openWithPdfjs(bytes: Uint8Array, options: LoadOptions = {}
     // pdf.js はスクリプト実行を明示的に有効化しない限り走らせないため、
     // ここでは XFA を切って描画経路を素のPDFだけに絞っている。
     enableXfa: false,
+    // GPUで描けるなら、pdf.js が内部で使う作業用の描画面もGPU側に置く。
+    // 使わない設定のときは全部CPU側に揃える (行き来の手間が出ないように)。
+    enableHWA: useGpu(),
     password: options.password,
   });
   return task.promise;

@@ -1,3 +1,4 @@
+import type { GpuSetting, ParallelSetting } from '../perf/device';
 import type { RedactColor } from '../pdf/redact';
 import { readJson, writeJson } from './store';
 
@@ -51,6 +52,13 @@ export interface Settings {
    * 安心できる既定だと考えたため。必要な人が設定で有効にする。
    */
   templateAutoAlign: boolean;
+  /**
+   * 同時に何ページ (何枚) 進めるか。'auto' は端末のCPUの数とメモリから決める。
+   * 1 にすると1つずつ順番に進める (メモリをいちばん使わない)。
+   */
+  parallel: ParallelSetting;
+  /** GPUで描くか。'auto' は使える端末なら使う。描画が乱れる端末向けに 'off' を選べる */
+  gpu: GpuSetting;
 }
 
 export const DPI_CHOICES = [96, 150, 200, 300] as const;
@@ -68,6 +76,8 @@ export const DEFAULT_SETTINGS: Settings = {
   redactSuffix: '_redacted',
   compressSuffix: '_small',
   templateAutoAlign: false,
+  parallel: 'auto',
+  gpu: 'auto',
 };
 
 const KEY = 'settings';
@@ -102,6 +112,10 @@ function coerce(raw: unknown): Settings {
       typeof value.compressSuffix === 'string' ? value.compressSuffix : DEFAULT_SETTINGS.compressSuffix,
     templateAutoAlign:
       typeof value.templateAutoAlign === 'boolean' ? value.templateAutoAlign : DEFAULT_SETTINGS.templateAutoAlign,
+    parallel: ([1, 2, 3, 4] as const).includes(value.parallel as 1 | 2 | 3 | 4)
+      ? (value.parallel as ParallelSetting)
+      : DEFAULT_SETTINGS.parallel,
+    gpu: value.gpu === 'off' ? 'off' : DEFAULT_SETTINGS.gpu,
   };
 }
 

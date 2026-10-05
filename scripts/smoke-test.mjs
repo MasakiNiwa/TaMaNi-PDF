@@ -2151,6 +2151,100 @@ console.log('\n[7] サイズ圧縮');
   }
 }
 
+console.log('\n[7c] 並べて進める・作業役・速さの設定');
+{
+  // 画像の取り込みは作業役 (Web Worker) で行われている
+  await page.goto(base + '#/organize');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  const smallPng = Buffer.from(
+    await page.evaluate(async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 1100;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#88aaff';
+      ctx.fillRect(0, 0, 800, 1100);
+      const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'));
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      let binary = '';
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    }),
+    'base64',
+  );
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'worker.png',
+    mimeType: 'image/png',
+    buffer: smallPng,
+  });
+  await page.locator('.page-card:visible').first().waitFor({ timeout: 20_000 });
+  const workerUsed = await page.evaluate(() =>
+    performance.getEntriesByType('resource').some((entry) => entry.name.includes('reencode.worker')),
+  );
+  check('画像の取り込みに作業役 (Web Worker) を使っている', workerUsed);
+
+  // 同時に3ページ流しても、出力のページの順番は崩れない。
+  // ページごとに幅を変えたPDFを作り、出力の幅の並びで確かめる。
+  const widths = [300, 360, 420, 480, 540, 600, 340];
+  const ordered = await (async () => {
+    const doc = await PDFDocument.create();
+    for (const width of widths) {
+      const sheet = doc.addPage([width, 600]);
+      sheet.drawRectangle({ x: 10, y: 10, width: width - 20, height: 580, color: rgb(0.2, 0.4, 0.8) });
+    }
+    return Buffer.from(await doc.save());
+  })();
+
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  check('設定に「処理の速さ」がある', await page.getByRole('heading', { name: '処理の速さ' }).isVisible());
+  await page.locator('select[aria-label="同時に進めるページ数"]').selectOption('3');
+
+  await page.goto(base + '#/compress');
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('.dropzone:visible').waitFor({ timeout: 20_000 });
+  await page.locator('input[type=file]:visible').first().setInputFiles({
+    name: 'ordered.pdf',
+    mimeType: 'application/pdf',
+    buffer: ordered,
+  });
+  await page.getByText('現在: ordered.pdf').waitFor({ timeout: 20_000 });
+  await page.getByRole('radio', { name: '画質で決める' }).click();
+  await page.getByRole('button', { name: '圧縮する' }).click();
+  await page.getByRole('heading', { name: '仕上がり' }).waitFor({ timeout: 120_000 });
+  downloads.length = 0;
+  await page.getByRole('button', { name: '保存する' }).click();
+  await page.waitForTimeout(3000);
+  const orderedOut = downloads.find((item) => item.name.endsWith('.pdf'));
+  check('同時に3ページ流しても書き出せる', Boolean(orderedOut));
+  if (orderedOut) {
+    const outWidths = (await PDFDocument.load(orderedOut.body)).getPages().map((sheet) => Math.round(sheet.getWidth()));
+    check(
+      '同時に流してもページの順番が崩れない',
+      outWidths.join(',') === widths.join(','),
+      outWidths.join(','),
+    );
+  }
+
+  // 速さを測ると、組み合わせごとの時間と、いちばん速いものが出る
+  await page.goto(base + '#/settings');
+  await page.reload({ waitUntil: 'load' });
+  await page.getByRole('button', { name: 'この端末で速さを測る' }).click();
+  await page.locator('.bench-table').waitFor({ timeout: 120_000 });
+  const rows = await page.locator('.bench-table tbody tr').count();
+  check('速さを測ると組み合わせごとの結果が出る', rows >= 2, `${rows}通り`);
+  check('いちばん速い組み合わせが示される', (await page.locator('.bench-table__best').count()) === 1);
+  await page.getByRole('button', { name: 'いちばん速い組み合わせにする' }).click();
+  await page.waitForTimeout(300);
+  const chosen = await page.locator('select[aria-label="同時に進めるページ数"]').inputValue();
+  check('測った結果を設定に反映できる', chosen !== 'auto', chosen);
+
+  // 元に戻しておく (このあとの節に持ち越さない)
+  await page.locator('select[aria-label="同時に進めるページ数"]').selectOption('auto');
+  await page.locator('select[aria-label="GPUで描く"]').selectOption('auto');
+}
+
 console.log('\n[7b] ナビの並びと設定の行');
 {
   const navOrder = await page.locator('.nav-rail .nav-item').allInnerTexts();

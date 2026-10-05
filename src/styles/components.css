@@ -614,3 +614,33 @@
   border-radius: var(--shape-sm);
   background: var(--md-surface-container-lowest);
 }
+
+/* ---------- 速さの計測結果 ---------- */
+
+.bench-result {
+  margin-top: 12px;
+}
+
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--md-outline-variant);
+  text-align: left;
+}
+
+.bench-table th {
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+}
+
+.bench-table__best td {
+  font-weight: 700;
+  background: var(--md-secondary-container);
+  color: var(--md-on-secondary-container);
+}

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { setPerfPreferences } from '../core/perf/device';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../core/storage/settings';
 
 interface SettingsApi {
@@ -20,7 +21,16 @@ function applyTheme(theme: Settings['theme']): void {
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [settings, setSettings] = useState<Settings>(() => {
+    const loaded = loadSettings();
+    // PDFを開く処理は React の外にあるので、速さに関わる設定はここで渡しておく
+    setPerfPreferences({ parallel: loaded.parallel, gpu: loaded.gpu });
+    return loaded;
+  });
+
+  useEffect(() => {
+    setPerfPreferences({ parallel: settings.parallel, gpu: settings.gpu });
+  }, [settings.parallel, settings.gpu]);
 
   useEffect(() => {
     applyTheme(settings.theme);

@@ -2,6 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import { yieldToUi } from '../util/queue';
 import { PRODUCER } from './assemble';
 import { toUserError } from './errors';
+import { context2d, parallelLanes } from '../perf/device';
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from './pdfjs';
 import { canvasToBlob, clampScale } from './render';
 
@@ -55,10 +56,67 @@ export interface RedactParams {
   signal?: AbortSignal;
   /** 既に開いてある pdf.js ドキュメントがあれば渡して読み込みを省略できる */
   proxy?: PDFDocumentProxy;
+  /**
+   * 同時に何ページ進めるか。省略すると端末に合わせて決める (perf/device.ts)。
+   * 1 にすると、これまでどおり1ページずつ順番に進める。
+   */
+  lanes?: number;
 }
 
 function assertNotAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new DOMException('処理が中止されました。', 'AbortError');
+}
+
+/** 1ページぶんの仕上がり (画像と、元ページの大きさ) */
+interface RasterPage {
+  image: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * 1ページを画像にして、墨消しを塗り、JPEG/PNG にする。
+ */
+async function rasterizePage(
+  doc: PDFDocumentProxy,
+  index: number,
+  pageCount: number,
+  canvas: HTMLCanvasElement,
+  settings: RedactOptions,
+  rectsForPage: RedactParams['rectsForPage'],
+): Promise<RasterPage> {
+  const mime = settings.format === 'png' ? 'image/png' : 'image/jpeg';
+  const quality = settings.format === 'png' ? undefined : settings.jpegQuality;
+
+  const page = await doc.getPage(index + 1);
+  // scale 1 のビューポートが、元ページの回転を反映した最終的な見た目のサイズ (ポイント)
+  const base = page.getViewport({ scale: 1 });
+  const scale = clampScale(base.width, base.height, settings.dpi / 72);
+  const viewport = page.getViewport({ scale });
+
+  canvas.width = Math.max(1, Math.floor(viewport.width));
+  canvas.height = Math.max(1, Math.floor(viewport.height));
+  const context = context2d(canvas);
+  if (!context) throw new Error('この環境ではキャンバスを利用できません。');
+
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvas, canvasContext: context, viewport, background: '#ffffff' }).promise;
+  page.cleanup();
+
+  // ここで初めて墨消しを適用する。以降このピクセル以外に元データは残らない。
+  for (const rect of rectsForPage(index, pageCount)) {
+    const x = Math.round(rect.x * canvas.width);
+    const y = Math.round(rect.y * canvas.height);
+    const w = Math.round(rect.w * canvas.width);
+    const h = Math.round(rect.h * canvas.height);
+    if (w <= 0 || h <= 0) continue;
+    context.fillStyle = REDACT_FILL[rect.color];
+    context.fillRect(x, y, w, h);
+  }
+
+  const blob = await canvasToBlob(canvas, mime, quality);
+  return { image: new Uint8Array(await blob.arrayBuffer()), width: base.width, height: base.height };
 }
 
 /**
@@ -69,6 +127,23 @@ function assertNotAborted(signal?: AbortSignal): void {
  * 新しいPDFに入れるので、隠した部分の情報は出力PDFに残らない。
  *
  * 代償としてテキスト検索・選択はできなくなる (ヘルプで明記している)。
+ *
+ * ## 並べて進める
+ *
+ * 1つのページの仕上げには、3つの持ち場がある。
+ *   1. PDFの解釈と埋め込み画像の展開 … pdf.js の作業役 (Web Worker)
+ *   2. キャンバスへの描画           … 画面のスレッド
+ *   3. JPEG への書き出し             … ブラウザの画像処理スレッド
+ * 1ページずつだと、どれか1つが動いているあいだ残りの2つは待っている。
+ * そこで数ページを同時に流し (レーン)、あるページを描いているあいだに
+ * 次のページの解釈と、前のページの書き出しが進むようにしている。
+ *
+ * レーンごとにPDFを開き直して作業役を増やす形も試したが、開き直す手間のほうが大きく、
+ * 4コアの端末ではかえって遅かった (docs/SPEC.md の計測を参照)。
+ * そのため作業役は1つのまま、流すページの数だけを増やしている。
+ *
+ * できあがった画像はページ番号の順に並べ直してから組み立てるので、
+ * 出力は1ページずつ進めたときと同じになる。
  */
 export async function redactToPdf({
   bytes,
@@ -77,70 +152,67 @@ export async function redactToPdf({
   onProgress,
   signal,
   proxy,
+  lanes,
 }: RedactParams): Promise<Uint8Array> {
   const settings = { ...DEFAULT_REDACT_OPTIONS, ...options };
-  const mime = settings.format === 'png' ? 'image/png' : 'image/jpeg';
-  const quality = settings.format === 'png' ? undefined : settings.jpegQuality;
 
   const doc = proxy ?? (await openWithPdfjs(bytes));
-  const out = await PDFDocument.create();
-  out.setProducer(PRODUCER);
-  out.setCreator(PRODUCER);
-
-  const canvas = document.createElement('canvas');
   const pageCount = doc.numPages;
+  const laneCount = Math.max(1, Math.min(lanes ?? parallelLanes(), pageCount));
+  const canvases: HTMLCanvasElement[] = [];
 
   try {
-    for (let index = 0; index < pageCount; index += 1) {
-      assertNotAborted(signal);
+    const results: RasterPage[] = new Array(pageCount);
+    let next = 0;
+    let done = 0;
+    // どれか1つのレーンが失敗したら、ほかのレーンも新しいページを取らずに止める
+    let failed = false;
 
-      const page = await doc.getPage(index + 1);
-      // scale 1 のビューポートが、元ページの回転を反映した最終的な見た目のサイズ (ポイント)
-      const base = page.getViewport({ scale: 1 });
-      const scale = clampScale(base.width, base.height, settings.dpi / 72);
-      const viewport = page.getViewport({ scale });
-
-      canvas.width = Math.max(1, Math.floor(viewport.width));
-      canvas.height = Math.max(1, Math.floor(viewport.height));
-      const context = canvas.getContext('2d', { alpha: false });
-      if (!context) throw new Error('この環境ではキャンバスを利用できません。');
-
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvas, viewport, background: '#ffffff' }).promise;
-      page.cleanup();
-
-      // ここで初めて墨消しを適用する。以降このピクセル以外に元データは残らない。
-      for (const rect of rectsForPage(index, pageCount)) {
-        const x = Math.round(rect.x * canvas.width);
-        const y = Math.round(rect.y * canvas.height);
-        const w = Math.round(rect.w * canvas.width);
-        const h = Math.round(rect.h * canvas.height);
-        if (w <= 0 || h <= 0) continue;
-        context.fillStyle = REDACT_FILL[rect.color];
-        context.fillRect(x, y, w, h);
+    const runLane = async () => {
+      const canvas = document.createElement('canvas');
+      canvases.push(canvas);
+      while (!failed) {
+        assertNotAborted(signal);
+        const index = next;
+        if (index >= pageCount) return;
+        next += 1;
+        try {
+          results[index] = await rasterizePage(doc, index, pageCount, canvas, settings, rectsForPage);
+        } catch (error) {
+          failed = true;
+          throw error;
+        }
+        done += 1;
+        onProgress?.({ pageIndex: done, pageCount });
+        await yieldToUi();
       }
+    };
 
-      const blob = await canvasToBlob(canvas, mime, quality);
-      const imageBytes = new Uint8Array(await blob.arrayBuffer());
+    // 全レーンが止まるまで待ってから後始末に進む (描いている途中で閉じないように)
+    const settled = await Promise.allSettled(Array.from({ length: laneCount }, () => runLane()));
+    const rejected = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected');
+    if (rejected) throw rejected.reason;
+    assertNotAborted(signal);
+
+    const out = await PDFDocument.create();
+    out.setProducer(PRODUCER);
+    out.setCreator(PRODUCER);
+    for (const result of results) {
       const image =
-        settings.format === 'png' ? await out.embedPng(imageBytes) : await out.embedJpg(imageBytes);
-
+        settings.format === 'png' ? await out.embedPng(result.image) : await out.embedJpg(result.image);
       // ページの物理サイズは元のまま保つ
-      const outPage = out.addPage([base.width, base.height]);
-      outPage.drawImage(image, { x: 0, y: 0, width: base.width, height: base.height });
-
-      onProgress?.({ pageIndex: index + 1, pageCount });
-      await yieldToUi();
+      const outPage = out.addPage([result.width, result.height]);
+      outPage.drawImage(image, { x: 0, y: 0, width: result.width, height: result.height });
     }
-
     return await out.save({ useObjectStreams: true });
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     throw toUserError(error);
   } finally {
-    canvas.width = 0;
-    canvas.height = 0;
+    for (const canvas of canvases) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
     // 呼び出し側から渡されたドキュメントは、その持ち主が閉じる
     if (!proxy) await closePdf(doc);
   }

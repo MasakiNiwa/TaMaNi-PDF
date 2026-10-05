@@ -1,3 +1,4 @@
+import { context2d } from '../perf/device';
 import { createLimiter } from '../util/queue';
 import type { PDFDocumentProxy } from './pdfjs';
 
@@ -62,12 +63,17 @@ export async function renderPageToCanvas(
     canvas.width = Math.max(1, Math.floor(viewport.width));
     canvas.height = Math.max(1, Math.floor(viewport.height));
 
-    const context = canvas.getContext('2d', { alpha: false });
+    const context = context2d(canvas);
     if (!context) throw new Error('この環境ではキャンバスを利用できません。');
     context.fillStyle = options.background ?? '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);
 
-    const task = page.render({ canvas, viewport, background: options.background ?? '#ffffff' });
+    const task = page.render({
+      canvas,
+      canvasContext: context,
+      viewport,
+      background: options.background ?? '#ffffff',
+    });
     // 表示倍率が次々変わるときは、前の描画を打ち切ってから次を描く。
     // 同じキャンバスに二重に描くと、pdf.js が途中状態のまま壊れた絵を残す。
     const onAbort = () => task.cancel();
