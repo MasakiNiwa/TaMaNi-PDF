@@ -2438,10 +2438,14 @@ console.log('\n[7c] 並べて進める・作業役・速さの設定');
   await page.waitForTimeout(300);
   const chosen = await page.locator('select[aria-label="同時に進めるページ数"]').inputValue();
   check('測った結果を設定に反映できる', chosen !== 'auto', chosen);
+  // GPU は画面の表示用と書き出し用に分かれている。測るのは書き出しなので、表示の設定は変えない
+  check('GPU の設定が表示用と書き出し用に分かれている', (await page.locator('select[aria-label="GPUで画面を描く"]').count()) === 1 && (await page.locator('select[aria-label="GPUで書き出す"]').count()) === 1);
+  check('測った結果で画面表示の GPU 設定は変わらない', (await page.locator('select[aria-label="GPUで画面を描く"]').inputValue()) === 'auto');
+  check('書き出しの GPU は既定で使わない', (await page.locator('select[aria-label="GPUで書き出す"]').inputValue()) === 'off');
 
   // 元に戻しておく (このあとの節に持ち越さない)
   await page.locator('select[aria-label="同時に進めるページ数"]').selectOption('auto');
-  await page.locator('select[aria-label="GPUで描く"]').selectOption('auto');
+  await page.locator('select[aria-label="GPUで画面を描く"]').selectOption('auto');
 }
 
 console.log('\n[7b] ナビの並びと設定の行');

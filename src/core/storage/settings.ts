@@ -1,5 +1,5 @@
 import type { ImageFormat } from '../image/pageImages';
-import type { GpuSetting, ParallelSetting } from '../perf/device';
+import type { ExportGpuSetting, GpuSetting, ParallelSetting } from '../perf/device';
 import type { RedactColor } from '../pdf/redact';
 import { readJson, writeJson } from './store';
 
@@ -58,8 +58,13 @@ export interface Settings {
    * 1 にすると1つずつ順番に進める (メモリをいちばん使わない)。
    */
   parallel: ParallelSetting;
-  /** GPUで描くか。'auto' は使える端末なら使う。描画が乱れる端末向けに 'off' を選べる */
+  /** 画面の表示に GPU を使うか。'auto' は使える端末なら使う。表示が乱れる端末向けに 'off' を選べる */
   gpu: GpuSetting;
+  /**
+   * 書き出し (墨消し・サイズ圧縮・画像で保存) に GPU を使うか。
+   * 描いた絵の読み戻しで遅くなる端末が多いため既定は 'off'。速さを測って速ければ 'on' になる。
+   */
+  exportGpu: ExportGpuSetting;
   /** ページを画像で保存するときの形式と解像度 (前回選んだもの) */
   imageExportFormat: ImageFormat;
   imageExportDpi: number;
@@ -84,6 +89,7 @@ export const DEFAULT_SETTINGS: Settings = {
   templateAutoAlign: false,
   parallel: 'auto',
   gpu: 'auto',
+  exportGpu: 'off',
   imageExportFormat: 'png',
   imageExportDpi: 150,
 };
@@ -124,6 +130,7 @@ function coerce(raw: unknown): Settings {
       ? (value.parallel as ParallelSetting)
       : DEFAULT_SETTINGS.parallel,
     gpu: value.gpu === 'off' ? 'off' : DEFAULT_SETTINGS.gpu,
+    exportGpu: value.exportGpu === 'on' ? 'on' : DEFAULT_SETTINGS.exportGpu,
     imageExportFormat: (['png', 'jpeg', 'webp', 'avif'] as const).includes(value.imageExportFormat as ImageFormat)
       ? (value.imageExportFormat as ImageFormat)
       : DEFAULT_SETTINGS.imageExportFormat,

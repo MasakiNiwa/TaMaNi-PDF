@@ -1,5 +1,5 @@
-import { parallelLanes } from '../perf/device';
-import type { PDFDocumentProxy } from '../pdf/pdfjs';
+import { parallelLanes, useGpu } from '../perf/device';
+import { closePdf, gpuOf, openWithPdfjs, type PDFDocumentProxy } from '../pdf/pdfjs';
 import { canvasToBlob, renderPageToCanvas } from '../pdf/render';
 import type { AvifRequest, AvifResponse } from './avif.worker';
 
@@ -137,6 +137,11 @@ export async function encodeCanvas(canvas: HTMLCanvasElement, format: ImageForma
 
 export interface PageImageJob {
   proxy: PDFDocumentProxy;
+  /**
+   * そのPDFのバイト列。表示用に開いたPDFと、書き出し用の GPU 設定が違うときに開き直すのに使う
+   * (pdf.js の GPU の使い方は開くときに決まるため)。
+   */
+  bytes?: Uint8Array;
   /** PDFの中のページ番号 (0始まり) */
   pageIndex: number;
   /** 追加で回す角度 (元ページの回転に足し込まれる) */
@@ -158,6 +163,18 @@ export interface PageImageParams {
 export async function renderPageImages({ jobs, dpi, format, onProgress, signal }: PageImageParams): Promise<Blob[]> {
   const results: Blob[] = new Array(jobs.length);
   const lanes = format === 'avif' ? 1 : Math.max(1, Math.min(parallelLanes(), jobs.length));
+  // 画像にするのは書き出しなので、書き出し用の GPU 設定で描く
+  const gpu = useGpu('export');
+  const reopened = new Map<PDFDocumentProxy, Promise<PDFDocumentProxy>>();
+  const docFor = (job: PageImageJob): Promise<PDFDocumentProxy> => {
+    if (gpuOf(job.proxy) === gpu || !job.bytes) return Promise.resolve(job.proxy);
+    let doc = reopened.get(job.proxy);
+    if (!doc) {
+      doc = openWithPdfjs(job.bytes, { gpu });
+      reopened.set(job.proxy, doc);
+    }
+    return doc;
+  };
   let next = 0;
   let done = 0;
   let failed = false;
@@ -170,11 +187,12 @@ export async function renderPageImages({ jobs, dpi, format, onProgress, signal }
       next += 1;
       const job = jobs[index];
       try {
-        const canvas = await renderPageToCanvas(job.proxy, job.pageIndex, {
+        const canvas = await renderPageToCanvas(await docFor(job), job.pageIndex, {
           rotation: job.rotation,
           scale: dpi / 72,
           background: '#ffffff',
           signal,
+          gpu,
         });
         try {
           results[index] = await encodeCanvas(canvas, format);
@@ -191,8 +209,13 @@ export async function renderPageImages({ jobs, dpi, format, onProgress, signal }
     }
   };
 
-  const settled = await Promise.allSettled(Array.from({ length: lanes }, () => runLane()));
-  const rejected = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected');
-  if (rejected) throw rejected.reason;
-  return results;
+  try {
+    const settled = await Promise.allSettled(Array.from({ length: lanes }, () => runLane()));
+    const rejected = settled.find((item): item is PromiseRejectedResult => item.status === 'rejected');
+    if (rejected) throw rejected.reason;
+    return results;
+  } finally {
+    // 開き直したものだけ閉じる (表示用に開いてあるPDFは、画面の持ち物)
+    for (const doc of reopened.values()) void doc.then(closePdf, () => undefined);
+  }
 }

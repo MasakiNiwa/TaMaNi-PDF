@@ -20,7 +20,10 @@ function assetUrl(path: string): string {
 export interface LoadOptions {
   /** パスワード付きPDFのパスワード */
   password?: string;
-  /** GPUで描くか。省略すると設定に従う (速さの計測では組み合わせごとに指定する) */
+  /**
+   * GPUで描くか。省略すると画面表示用の設定に従う。
+   * 書き出しに使うときは、書き出し用の設定を渡す (速さの計測では組み合わせごとに指定する)。
+   */
   gpu?: boolean;
 }
 
