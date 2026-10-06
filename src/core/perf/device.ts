@@ -9,14 +9,31 @@
  */
 
 export type ParallelSetting = 'auto' | 1 | 2 | 3 | 4;
+/** 画面の表示に GPU を使うか */
 export type GpuSetting = 'auto' | 'off';
+/** 書き出し (墨消し・サイズ圧縮・画像で保存) に GPU を使うか */
+export type ExportGpuSetting = 'on' | 'off';
+
+/**
+ * GPU を何に使うか。
+ *
+ * - display: ページの一覧・拡大表示・墨消しの作業画面。描いた絵は画面に出すだけで読み戻さない。
+ * - export: 墨消し・サイズ圧縮・画像で保存。描いた絵を JPEG などにするため、GPU から読み戻す。
+ *
+ * 実機 (Pixel 8 Pro) の工程ごとの計測で、GPU を使うと「描く」は同じか速くなる一方、
+ * 「画像にする」(読み戻し + 書き出し) はどの同時数でも遅くなった (+18〜40%)。
+ * 読み戻しのない表示には GPU が向き、読み戻しのある書き出しには向かないことが多いので、
+ * 用途ごとに既定を分け、書き出しは端末で測った結果で上書きする。
+ */
+export type GpuPurpose = 'display' | 'export';
 
 export interface PerfPreferences {
   parallel: ParallelSetting;
   gpu: GpuSetting;
+  exportGpu: ExportGpuSetting;
 }
 
-let preferences: PerfPreferences = { parallel: 'auto', gpu: 'auto' };
+let preferences: PerfPreferences = { parallel: 'auto', gpu: 'auto', exportGpu: 'off' };
 
 /** 設定が変わったら呼ぶ (設定の共有状態から呼んでいる) */
 export function setPerfPreferences(next: PerfPreferences): void {
@@ -104,10 +121,10 @@ export function detectGpu(): GpuInfo {
   return info;
 }
 
-/** いまの設定で、GPUに描かせるか */
-export function useGpu(): boolean {
-  if (preferences.gpu === 'off') return false;
-  return detectGpu().available;
+/** いまの設定で、その用途に GPU を使うか */
+export function useGpu(purpose: GpuPurpose = 'display'): boolean {
+  const wanted = purpose === 'export' ? preferences.exportGpu === 'on' : preferences.gpu !== 'off';
+  return wanted && detectGpu().available;
 }
 
 /**

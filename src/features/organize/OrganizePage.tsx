@@ -29,7 +29,7 @@ import { renderPageImages, IMAGE_FORMATS, type PageImageJob } from '../../core/i
 import { closePdf, openWithPdfjs, type PDFDocumentProxy } from '../../core/pdf/pdfjs';
 import type { PageRef } from '../../core/pdf/types';
 import { IMAGE_ACCEPT, createBlankSource, loadAnyFile } from '../../core/pdf/source';
-import { parallelLanes } from '../../core/perf/device';
+import { parallelLanes, useGpu } from '../../core/perf/device';
 import { createLimiter } from '../../core/util/queue';
 import {
   THUMBNAIL_SIZES,
@@ -302,7 +302,10 @@ export function OrganizePage() {
     try {
       let jobs: PageImageJob[];
       if (pageNumber) {
-        assembled = await openWithPdfjs(await buildPdfFromPages(deck.sources, deck.pages, pageNumber));
+        // 組み立てたPDFは画像にするためだけに開くので、書き出し用の GPU 設定で開く
+        assembled = await openWithPdfjs(await buildPdfFromPages(deck.sources, deck.pages, pageNumber), {
+          gpu: useGpu('export'),
+        });
         const proxy = assembled;
         jobs = imageTargets.map((position) => ({ proxy, pageIndex: position, rotation: 0 }));
       } else {
@@ -310,7 +313,7 @@ export function OrganizePage() {
           const page = deck.pages[position];
           const source = deck.sources.get(page.sourceId);
           if (!source) throw new Error('読み込み済みのファイルが見つかりませんでした。');
-          return { proxy: source.proxy, pageIndex: page.sourceIndex, rotation: page.rotation };
+          return { proxy: source.proxy, bytes: source.bytes, pageIndex: page.sourceIndex, rotation: page.rotation };
         });
       }
 

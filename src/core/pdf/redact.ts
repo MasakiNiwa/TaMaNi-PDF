@@ -67,7 +67,7 @@ export interface RedactParams {
    */
   lanes?: number;
   /**
-   * GPUで描くか。省略すると設定に従う。
+   * GPUで描くか。省略すると書き出し用の設定に従う。
    * 速さの計測では、アプリ全体の設定を書き換えずに組み合わせごとに指定するために使う。
    */
   gpu?: boolean;
@@ -203,7 +203,7 @@ export async function redactToPdf({
   signal,
   proxy,
   lanes,
-  gpu = useGpu(),
+  gpu = useGpu('export'),
   stats,
 }: RedactParams): Promise<Blob> {
   const settings = { ...DEFAULT_REDACT_OPTIONS, ...options };

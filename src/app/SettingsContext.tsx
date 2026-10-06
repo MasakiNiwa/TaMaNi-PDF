@@ -24,13 +24,13 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings>(() => {
     const loaded = loadSettings();
     // PDFを開く処理は React の外にあるので、速さに関わる設定はここで渡しておく
-    setPerfPreferences({ parallel: loaded.parallel, gpu: loaded.gpu });
+    setPerfPreferences({ parallel: loaded.parallel, gpu: loaded.gpu, exportGpu: loaded.exportGpu });
     return loaded;
   });
 
   useEffect(() => {
-    setPerfPreferences({ parallel: settings.parallel, gpu: settings.gpu });
-  }, [settings.parallel, settings.gpu]);
+    setPerfPreferences({ parallel: settings.parallel, gpu: settings.gpu, exportGpu: settings.exportGpu });
+  }, [settings.parallel, settings.gpu, settings.exportGpu]);
 
   useEffect(() => {
     applyTheme(settings.theme);

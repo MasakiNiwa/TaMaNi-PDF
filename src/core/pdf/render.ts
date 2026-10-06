@@ -41,6 +41,8 @@ export interface RenderToCanvasOptions {
   background?: string;
   /** 途中で不要になったときに描画を打ち切るための合図 */
   signal?: AbortSignal;
+  /** GPUで描くか。省略すると画面表示用の設定に従う */
+  gpu?: boolean;
 }
 
 /** 1ページをキャンバスへ描画する */
@@ -65,7 +67,7 @@ export async function renderPageToCanvas(
     canvas.width = Math.max(1, Math.floor(viewport.width));
     canvas.height = Math.max(1, Math.floor(viewport.height));
 
-    const context = context2d(canvas);
+    const context = context2d(canvas, options.gpu);
     if (!context) throw new Error('この環境ではキャンバスを利用できません。');
     context.fillStyle = options.background ?? '#ffffff';
     context.fillRect(0, 0, canvas.width, canvas.height);

@@ -277,29 +277,45 @@ export function SettingsPage() {
           </SettingRow>
 
           <SettingRow
-            title="GPUで描く"
+            title="GPUで画面を描く"
             description={
               gpuInfo.available
-                ? 'この端末はGPUで描けます。自動ではGPUを使います。表示が乱れるときは「使わない」にしてください。'
+                ? 'ページの一覧や拡大表示です。画面に出すだけなので、GPUを使うほうが滑らかです。表示が乱れるときは「使わない」に。'
                 : gpuInfo.software
-                  ? 'この端末のブラウザはGPUの代わりにCPUで真似ているため、使っても速くなりません。自動では使いません。'
-                  : 'この端末のブラウザではGPUを使えないため、自動では使いません。'
+                  ? 'この端末のブラウザはGPUをCPUで真似ているため、使っても速くなりません。'
+                  : 'この端末のブラウザではGPUを使えません。'
             }
           >
             <select
               className="select"
               value={settings.gpu}
               onChange={(event) => update({ gpu: event.target.value === 'off' ? 'off' : 'auto' })}
-              aria-label="GPUで描く"
+              aria-label="GPUで画面を描く"
             >
               <option value="auto">自動 ({gpuInfo.available ? '使う' : '使わない'})</option>
               <option value="off">使わない</option>
             </select>
           </SettingRow>
 
+          <SettingRow
+            title="GPUで書き出す"
+            description="墨消し・サイズ圧縮・画像で保存です。描いた絵をGPUから読み戻す手間で遅くなる端末が多いため、ふだんは使いません。下で測って速ければ「使う」になります。"
+          >
+            <select
+              className="select"
+              value={gpuInfo.available ? settings.exportGpu : 'off'}
+              disabled={!gpuInfo.available}
+              onChange={(event) => update({ exportGpu: event.target.value === 'on' ? 'on' : 'off' })}
+              aria-label="GPUで書き出す"
+            >
+              <option value="off">使わない</option>
+              <option value="on">使う</option>
+            </select>
+          </SettingRow>
+
           <div style={{ padding: '12px 0 4px' }}>
             <p className="text-small muted" style={{ marginTop: 0 }}>
-              効き目は端末によって違います。見本のPDFで実際に測って、いちばん速い組み合わせを選べます
+              墨消し・圧縮・画像で保存の速さを、見本のPDFで実際に測って、いちばん速い組み合わせを選べます
               (十数秒かかります。お手持ちのPDFは使いません)。
             </p>
             <Button
@@ -384,7 +400,8 @@ export function SettingsPage() {
                   variant="filled"
                   icon="check"
                   onClick={() => {
-                    update({ parallel: bench.best.lanes as 1 | 2 | 3 | 4, gpu: bench.best.gpu ? 'auto' : 'off' });
+                    // 測ったのは書き出しの速さなので、書き出しの GPU だけを変える (画面の表示はそのまま)
+                    update({ parallel: bench.best.lanes as 1 | 2 | 3 | 4, exportGpu: bench.best.gpu ? 'on' : 'off' });
                     snackbar.success('いちばん速かった組み合わせにしました。');
                   }}
                 >
