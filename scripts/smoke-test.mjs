@@ -2421,27 +2421,42 @@ console.log('\n[7c] 並べて進める・作業役・速さの設定');
     );
   }
 
-  // 速さを測ると、組み合わせごとの時間と、いちばん速いものが出る
+  // 「この端末に合わせる」を押すと、測って、いちばん速い組み合わせがそのまま設定になる
   await page.goto(base + '#/settings');
   await page.reload({ waitUntil: 'load' });
-  await page.getByRole('button', { name: 'この端末で速さを測る' }).click();
+  await page.getByRole('button', { name: 'この端末に合わせる' }).click();
+  await page.locator('.tune__summary').waitFor({ timeout: 120_000 });
+  const summary = await page.locator('.tune__summary').innerText();
+  check('押すだけで設定まで変わる (別のボタンは要らない)', /ページ同時・書き出しにGPUを(使う|使わない)にしました/.test(summary), summary);
+  check('「いちばん速い組み合わせにする」ボタンはもう無い', (await page.getByRole('button', { name: 'いちばん速い組み合わせにする' }).count()) === 0);
+  const chosen = await page.locator('select[aria-label="同時に進めるページ数"]').inputValue();
+  check('測った結果の同時数が設定に入る', chosen !== 'auto' && summary.startsWith(chosen), `${chosen} / ${summary}`);
+
+  // 測った結果の表と内訳は、畳んだ中で見られる
+  await page.locator('summary').filter({ hasText: '測った結果' }).click();
   const results = page.locator('.bench-table').first();
-  await results.waitFor({ timeout: 120_000 });
+  await results.waitFor({ timeout: 10_000 });
   const rows = await results.locator('tbody tr').count();
-  check('速さを測ると組み合わせごとの結果が出る', rows >= 3, `${rows}通り`);
+  check('測った結果に組み合わせごとの時間が出る', rows >= 3, `${rows}通り`);
   const lanesMeasured = await results.locator('tbody tr td:first-child').allInnerTexts();
   check('同時数は 1・2・3 をすべて比べる', ['1ページ', '2ページ', '3ページ'].every((label) => lanesMeasured.includes(label)), lanesMeasured.join(','));
-  await page.locator('summary').filter({ hasText: '工程ごとの内訳' }).click();
   check('工程ごとの内訳を見られる', await page.locator('.bench-table').nth(1).isVisible());
   check('いちばん速い組み合わせが示される', (await page.locator('.bench-table__best').count()) === 1);
-  await page.getByRole('button', { name: 'いちばん速い組み合わせにする' }).click();
-  await page.waitForTimeout(300);
-  const chosen = await page.locator('select[aria-label="同時に進めるページ数"]').inputValue();
-  check('測った結果を設定に反映できる', chosen !== 'auto', chosen);
+
   // GPU は画面の表示用と書き出し用に分かれている。測るのは書き出しなので、表示の設定は変えない
   check('GPU の設定が表示用と書き出し用に分かれている', (await page.locator('select[aria-label="GPUで画面を描く"]').count()) === 1 && (await page.locator('select[aria-label="GPUで書き出す"]').count()) === 1);
   check('測った結果で画面表示の GPU 設定は変わらない', (await page.locator('select[aria-label="GPUで画面を描く"]').inputValue()) === 'auto');
   check('書き出しの GPU は既定で使わない', (await page.locator('select[aria-label="GPUで書き出す"]').inputValue()) === 'off');
+
+  // 次に開いたときも、合わせた設定と日付が残っている
+  await page.reload({ waitUntil: 'load' });
+  await page.locator('select[aria-label="同時に進めるページ数"]').waitFor({ timeout: 20_000 });
+  check('開き直しても合わせた設定が残る', (await page.locator('select[aria-label="同時に進めるページ数"]').inputValue()) === chosen);
+  check('いつ合わせたかが出る', await page.getByText('に、この端末に合わせました。').isVisible().catch(() => false));
+  // 手で変えたら「合わせました」は消える (合わせたときの値ではなくなるため)
+  await page.locator('select[aria-label="同時に進めるページ数"]').selectOption('auto');
+  await page.waitForTimeout(300);
+  check('手で変えたら「合わせました」は消える', !(await page.getByText('に、この端末に合わせました。').isVisible().catch(() => false)));
 
   // 元に戻しておく (このあとの節に持ち越さない)
   await page.locator('select[aria-label="同時に進めるページ数"]').selectOption('auto');
