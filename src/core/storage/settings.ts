@@ -65,6 +65,11 @@ export interface Settings {
    * 描いた絵の読み戻しで遅くなる端末が多いため既定は 'off'。速さを測って速ければ 'on' になる。
    */
   exportGpu: ExportGpuSetting;
+  /**
+   * 「この端末に合わせる」で同時数と書き出しの GPU を決めた日時 (ISO 形式)。
+   * 手で変えたら消す (合わせたときの値ではなくなるため)。
+   */
+  tunedAt: string | null;
   /** ページを画像で保存するときの形式と解像度 (前回選んだもの) */
   imageExportFormat: ImageFormat;
   imageExportDpi: number;
@@ -90,6 +95,7 @@ export const DEFAULT_SETTINGS: Settings = {
   parallel: 'auto',
   gpu: 'auto',
   exportGpu: 'off',
+  tunedAt: null,
   imageExportFormat: 'png',
   imageExportDpi: 150,
 };
@@ -131,6 +137,10 @@ function coerce(raw: unknown): Settings {
       : DEFAULT_SETTINGS.parallel,
     gpu: value.gpu === 'off' ? 'off' : DEFAULT_SETTINGS.gpu,
     exportGpu: value.exportGpu === 'on' ? 'on' : DEFAULT_SETTINGS.exportGpu,
+    tunedAt:
+      typeof value.tunedAt === 'string' && !Number.isNaN(Date.parse(value.tunedAt))
+        ? value.tunedAt
+        : DEFAULT_SETTINGS.tunedAt,
     imageExportFormat: (['png', 'jpeg', 'webp', 'avif'] as const).includes(value.imageExportFormat as ImageFormat)
       ? (value.imageExportFormat as ImageFormat)
       : DEFAULT_SETTINGS.imageExportFormat,

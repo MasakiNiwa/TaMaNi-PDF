@@ -41,19 +41,39 @@ export function SettingsPage() {
   const [benchProgress, setBenchProgress] = useState<{ done: number; total: number } | null>(null);
   const [bench, setBench] = useState<BenchmarkResult | null>(null);
 
-  const runBenchmark = useCallback(async () => {
+  /**
+   * この端末に合わせる: 測って、いちばん速い組み合わせをそのまま設定にする。
+   *
+   * 以前は「測る」と「その組み合わせにする」が別のボタンだった。測った人はほぼ全員が
+   * そのまま反映するので、1回押せば済むようにした。設定は端末に残るので、次からもこの値で動く。
+   * 測ったのは書き出しの速さなので、変えるのは同時数と書き出しの GPU だけ (画面の表示はそのまま)。
+   */
+  const tuneForDevice = useCallback(async () => {
     setBench(null);
     setBenchProgress({ done: 0, total: 1 });
     try {
       // 計測は pdf.js と pdf-lib を使う。設定画面を開いただけで読み込まないよう、押したときに取りに行く
       const { measureSpeed } = await import('../../core/perf/benchmark');
-      setBench(await measureSpeed((done, total) => setBenchProgress({ done, total })));
+      const result = await measureSpeed((done, total) => setBenchProgress({ done, total }));
+      setBench(result);
+      update({
+        parallel: result.best.lanes as 1 | 2 | 3 | 4,
+        exportGpu: result.best.gpu ? 'on' : 'off',
+        tunedAt: new Date().toISOString(),
+      });
+      snackbar.success('この端末に合わせました。');
     } catch (error) {
       snackbar.error(error instanceof Error ? error.message : '測れませんでした。');
     } finally {
       setBenchProgress(null);
     }
-  }, [snackbar]);
+  }, [snackbar, update]);
+
+  const tunedLabel = useMemo(() => {
+    if (!settings.tunedAt) return null;
+    const date = new Date(settings.tunedAt);
+    return `${date.getMonth() + 1}月${date.getDate()}日`;
+  }, [settings.tunedAt]);
 
   const exportTemplates = useCallback(() => {
     if (templates.templates.length === 0) return;
@@ -253,6 +273,100 @@ export function SettingsPage() {
       <section className="section">
         <h2 className="section__title">処理の速さ</h2>
         <div className="card card--outlined">
+          <div className="tune">
+            <p className="text-small muted" style={{ marginTop: 0 }}>
+              墨消し・圧縮・画像で保存の速さを見本のPDFで実際に測り、この端末でいちばん速い設定にします
+              (十数秒かかります。お手持ちのPDFは使いません)。
+            </p>
+            <Button
+              variant="tonal"
+              icon="play"
+              disabled={benchProgress !== null}
+              onClick={() => void tuneForDevice()}
+            >
+              この端末に合わせる
+            </Button>
+            {tunedLabel && !benchProgress && !bench ? (
+              <p className="text-small muted" style={{ margin: '8px 0 0' }}>
+                {tunedLabel}に、この端末に合わせました。
+              </p>
+            ) : null}
+            {benchProgress ? (
+              <div style={{ marginTop: 12 }} role="status">
+                <p className="text-small" style={{ margin: '0 0 6px' }}>
+                  測っています… {benchProgress.done} / {benchProgress.total}
+                </p>
+                <ProgressBar value={benchProgress.done} max={benchProgress.total} />
+              </div>
+            ) : null}
+            {bench ? (
+              <div className="bench-result" role="status">
+                <p className="tune__summary">
+                  <strong>
+                    {bench.best.lanes}ページ同時・書き出しにGPUを{bench.best.gpu ? '使う' : '使わない'}
+                  </strong>
+                  にしました。
+                  {bench.gainPercent > 0 ? `1ページずつ・GPUなしより約${bench.gainPercent}%速くなります。` : ''}
+                </p>
+                <Collapsible title="測った結果" icon="info">
+                  <table className="bench-table">
+                    <thead>
+                      <tr>
+                        <th>同時に</th>
+                        <th>GPU</th>
+                        <th>かかった時間</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bench.cases.map((item) => (
+                        <tr
+                          key={`${item.lanes}-${item.gpu}`}
+                          className={item === bench.best ? 'bench-table__best' : undefined}
+                        >
+                          <td>{item.lanes}ページ</td>
+                          <td>{item.gpu ? '使う' : '使わない'}</td>
+                          <td>
+                            {(item.ms / 1000).toFixed(2)}秒{item === bench.best ? ' ← いちばん速い' : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {bench.gpuWithinNoise ? (
+                    <p className="text-small muted">GPUのあり・なしの差は、測るたびのぶれの範囲です。</p>
+                  ) : null}
+                  <h4 className="tune__subhead">工程ごとの内訳</h4>
+                  <p className="text-small muted" style={{ marginTop: 0 }}>
+                    1回あたりの時間です。同時に進めたときは各ページの合計なので、上の時間より大きくなります。
+                    GPUで描くと「描く」は速くなっても、絵を読み戻す「画像にする」が遅くなることがあります。
+                  </p>
+                  <table className="bench-table">
+                    <thead>
+                      <tr>
+                        <th>同時に</th>
+                        <th>GPU</th>
+                        <th>描く</th>
+                        <th>画像にする</th>
+                        <th>開く・組み立て</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bench.cases.map((item) => (
+                        <tr key={`stats-${item.lanes}-${item.gpu}`}>
+                          <td>{item.lanes}</td>
+                          <td>{item.gpu ? '使う' : '使わない'}</td>
+                          <td>{(item.stats.render / 1000).toFixed(2)}秒</td>
+                          <td>{(item.stats.encode / 1000).toFixed(2)}秒</td>
+                          <td>{((item.stats.open + item.stats.assemble) / 1000).toFixed(2)}秒</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Collapsible>
+              </div>
+            ) : null}
+          </div>
+
           <SettingRow
             title="同時に進めるページ数"
             description={`墨消し・サイズ圧縮・画像の取り込みで、何ページ (何枚) を同時に流すかです。自動では、この端末 (${profile.cores}コア${profile.memoryGb ? `・メモリ約${profile.memoryGb}GB` : ''}) に合わせて ${autoLanes} にします。`}
@@ -264,6 +378,7 @@ export function SettingsPage() {
                 update({
                   parallel:
                     event.target.value === 'auto' ? 'auto' : (Number(event.target.value) as 1 | 2 | 3 | 4),
+                  tunedAt: null,
                 })
               }
               aria-label="同時に進めるページ数"
@@ -305,7 +420,7 @@ export function SettingsPage() {
               className="select"
               value={gpuInfo.available ? settings.exportGpu : 'off'}
               disabled={!gpuInfo.available}
-              onChange={(event) => update({ exportGpu: event.target.value === 'on' ? 'on' : 'off' })}
+              onChange={(event) => update({ exportGpu: event.target.value === 'on' ? 'on' : 'off', tunedAt: null })}
               aria-label="GPUで書き出す"
             >
               <option value="off">使わない</option>
@@ -313,103 +428,7 @@ export function SettingsPage() {
             </select>
           </SettingRow>
 
-          <div style={{ padding: '12px 0 4px' }}>
-            <p className="text-small muted" style={{ marginTop: 0 }}>
-              墨消し・圧縮・画像で保存の速さを、見本のPDFで実際に測って、いちばん速い組み合わせを選べます
-              (十数秒かかります。お手持ちのPDFは使いません)。
-            </p>
-            <Button
-              variant="tonal"
-              icon="play"
-              disabled={benchProgress !== null}
-              onClick={() => void runBenchmark()}
-            >
-              この端末で速さを測る
-            </Button>
-            {benchProgress ? (
-              <div style={{ marginTop: 12 }} role="status">
-                <p className="text-small" style={{ margin: '0 0 6px' }}>
-                  測っています… {benchProgress.done} / {benchProgress.total}
-                </p>
-                <ProgressBar value={benchProgress.done} max={benchProgress.total} />
-              </div>
-            ) : null}
-            {bench ? (
-              <div className="bench-result" role="status">
-                <table className="bench-table">
-                  <thead>
-                    <tr>
-                      <th>同時に</th>
-                      <th>GPU</th>
-                      <th>かかった時間</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bench.cases.map((item) => (
-                      <tr
-                        key={`${item.lanes}-${item.gpu}`}
-                        className={item === bench.best ? 'bench-table__best' : undefined}
-                      >
-                        <td>{item.lanes}ページ</td>
-                        <td>{item.gpu ? '使う' : '使わない'}</td>
-                        <td>
-                          {(item.ms / 1000).toFixed(2)}秒{item === bench.best ? ' ← いちばん速い' : ''}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-small" style={{ margin: '8px 0' }}>
-                  {bench.gainPercent > 0
-                    ? `1ページずつ・GPUなしに比べて、約${bench.gainPercent}%速くなります。`
-                    : 'この端末では、1ページずつ・GPUなしがいちばん速いようです。'}
-                  {bench.gpuWithinNoise ? ' GPUのあり・なしの差は、測るたびのぶれの範囲です。' : ''}
-                </p>
-                <div style={{ margin: '0 0 10px' }}>
-                  <Collapsible title="工程ごとの内訳" icon="info">
-                    <p className="text-small muted" style={{ marginTop: 0 }}>
-                      1回あたりの時間です。同時に進めたときは各ページの合計なので、上の時間より大きくなります。
-                      GPUで描くと「描く」は速くなっても、絵を読み戻す「画像にする」が遅くなることがあります。
-                    </p>
-                    <table className="bench-table">
-                      <thead>
-                        <tr>
-                          <th>同時に</th>
-                          <th>GPU</th>
-                          <th>描く</th>
-                          <th>画像にする</th>
-                          <th>開く・組み立て</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bench.cases.map((item) => (
-                          <tr key={`stats-${item.lanes}-${item.gpu}`}>
-                            <td>{item.lanes}</td>
-                            <td>{item.gpu ? '使う' : '使わない'}</td>
-                            <td>{(item.stats.render / 1000).toFixed(2)}秒</td>
-                            <td>{(item.stats.encode / 1000).toFixed(2)}秒</td>
-                            <td>{((item.stats.open + item.stats.assemble) / 1000).toFixed(2)}秒</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Collapsible>
-                </div>
-                <Button
-                  small
-                  variant="filled"
-                  icon="check"
-                  onClick={() => {
-                    // 測ったのは書き出しの速さなので、書き出しの GPU だけを変える (画面の表示はそのまま)
-                    update({ parallel: bench.best.lanes as 1 | 2 | 3 | 4, exportGpu: bench.best.gpu ? 'on' : 'off' });
-                    snackbar.success('いちばん速かった組み合わせにしました。');
-                  }}
-                >
-                  いちばん速い組み合わせにする
-                </Button>
-              </div>
-            ) : null}
-          </div>
+
         </div>
       </section>
 

@@ -644,3 +644,18 @@
   background: var(--md-secondary-container);
   color: var(--md-on-secondary-container);
 }
+
+/* 「この端末に合わせる」: 手で選ぶ項目より先に置く (たいていの人はこれだけで済む) */
+.tune {
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+
+.tune__summary {
+  margin: 0 0 10px;
+}
+
+.tune__subhead {
+  margin: 16px 0 6px;
+  font-size: 0.875rem;
+}
